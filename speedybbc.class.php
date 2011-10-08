@@ -285,7 +285,6 @@ class SpeedyBBC
 									'name' => 'iurl',
 									'type' => 'basic',
 									'callback' => create_function('$content, $dummy', '
-																	// !!! TODO: regex
 																	if(preg_match(\'~(?:((?:http|ftp)(?:s)?://|www\.)(?:[\w+?\.\w+])+(?:[a-zA-Z0-9\~\!\@\#\$\%\^\&amp;\*\(\)_\-\=\+\\\/\?\.\:\;\\\'\,]*)?)~i\', $content))
 																	{
 																		return \'<a href="\'. $content. \'>\'. $content. \'</a>\';
@@ -386,7 +385,7 @@ class SpeedyBBC
 									'name' => 'br',
 									'type' => 'empty-basic',
 									'before' => '<br />',
-									'after' => '', // !!! TODO: Replace \r\n
+									'after' => '',
 								),
 								/* Lists */
 								array(
@@ -422,7 +421,7 @@ class SpeedyBBC
 									'block_level' => true,
 								),
 								array(
-									'name' => 'next', // !!! TODO: Test if it works if unclosed [b]
+									'name' => 'next',
 									'type' => 'empty-basic',
 									'before' => '</td><td>',
 									'after' => '',
@@ -1471,39 +1470,35 @@ class SpeedyBBC
 				// was even opened in the first place.
 				if($opened_count > 0)
 				{
-					// It could be, so let's see.
+					// Let's keep track of whether this tag was opened, because it may
+					// not have been.
 					$is_opened = false;
-					// !!! TODO: Keep track of the index and then use a for loop to
-					//					 close everything, not a while which requires
-					//					 something extra... Actually, keep track of how many.
-					// ERROR: Need to start from the back!!!
-					foreach($opened_tags as $open_tag)
+					for($index = $opened_count - 1; $index >= 0; $index--)
 					{
-						if($open_tag->name() == $struct[$pos]->getTag())
+						// We will compare the names to see if it was opened.
+						if($opened_tags[$index]->name() == $struct[$pos]->getTag())
 						{
-							// Ah, good. It appears this tag was opened.
-							$is_opened = true;
+							// Yup, it was opened! We will save the index we found it at.
+							$is_opened = $index;
 
+							// Now, let's get out of here.
 							break;
 						}
 					}
 
 					// So, what did our search find?
-					if($is_opened)
+					if($is_opened !== false)
 					{
-						// I guess the tag was opened. So here we go!
-						$popped = null;
-						while(($popped = array_pop($opened_tags)) !== null && $popped->name() != $struct[$pos]->getTag())
+						// Let's start at the end and work our way towards the final
+						// tag...
+						for($index = $opened_count - 1; $index >= $is_opened; $index--)
 						{
-							// The after tag may have "stuff" in need of replacing.
-							$message .= str_ireplace(array_keys($popped->replacements()), array_values($popped->replacements()), $popped->after());
+							// We will just pop that sucker off!
+							$popped = array_pop($opened_tags);
 							$opened_count--;
-						}
 
-						if($popped !== null)
-						{
+							// Now add the after content to the message.
 							$message .= str_ireplace(array_keys($popped->replacements()), array_values($popped->replacements()), $popped->after());
-							$opened_count--;
 						}
 
 						// This was handled...

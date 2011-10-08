@@ -151,11 +151,79 @@ $test_cases = array(
 									'bbc' => '[olist][li]This is an ordered list...[/li][li]... and another item[/li][/olist]',
 									'html' => '<ol><li>This is an ordered list...</li><li>... and another item</li></ol>',
 								),
+								array(
+									'name' => 'No [list] test',
+									'bbc' => '[li]I am trying to make an unordered list without the proper parent tag![/li]',
+									'html' => '[li]I am trying to make an unordered list without the proper parent tag![/li]',
+								),
 								'Tables',
 								array(
 									'name' => 'Columns',
 									'bbc' => '[columns]This is the first column[next]This is the second[next]... and this is the third[/columns]',
 									'html' => '<table><tr><td>This is the first column</td><td>This is the second</td><td>... and this is the third</td></tr></table>',
+								),
+								'Security',
+								array(
+									'name' => '[url] JavaScript injection test #1',
+									'bbc' => '[url]javascript:alert(\'Gotcha!\');[/url]',
+									'html' => '[url]javascript:alert(&#039;Gotcha!&#039;);[/url]',
+								),
+								array(
+									'name' => '[url] JavaScript injection test #2',
+									'bbc' => '[url=javascript:alert(\'Gotcha!\');]Click here![/url]',
+									'html' => '[url=javascript:alert(&#039;Gotcha!&#039;);]Click here![/url]',
+								),
+								array(
+									'name' => '[iurl] JavaScript injection test #1',
+									'bbc' => '[iurl]javascript:alert(\'Gotcha!\');[/iurl]',
+									'html' => '[iurl]javascript:alert(&#039;Gotcha!&#039;);[/iurl]',
+								),
+								array(
+									'name' => '[iurl] JavaScript injection test #2',
+									'bbc' => '[iurl=javascript:alert(\'Gotcha!\');]Click here![/iurl]',
+									'html' => '[iurl=javascript:alert(&#039;Gotcha!&#039;);]Click here![/iurl]',
+								),
+								array(
+									'name' => 'Email validation test #1',
+									'bbc' => '[email]myinvalid@yay[/email]',
+									'html' => '[email]myinvalid@yay[/email]',
+								),
+								array(
+									'name' => 'Email validation test #2',
+									'bbc' => '[email]almostvalid.@hotmail.com[/email]',
+									'html' => '[email]almostvalid.@hotmail.com[/email]',
+								),
+								array(
+									'name' => 'Email validation test #3',
+									'bbc' => '[email=myinvalid@yay]Email me...[/email]',
+									'html' => '[email=myinvalid@yay]Email me...[/email]',
+								),
+								array(
+									'name' => 'URL validation',
+									'bbc' => '[url=http://]Click this not valid link...[/url]',
+									'html' => '[url=http://]Click this not valid link...[/url]',
+								),
+								array(
+									'name' => 'Image URL validation',
+									'bbc' => '[img]http://[/img]',
+									'html' => '[img]http://[/img]',
+								),
+								'Auto Replacements',
+								array(
+									'name' => 'Auto &lt;br /&gt;',
+									'bbc' => 'Look'. "\r\n". 'another'. "\r\n". 'line!!!',
+									'html' => 'Look<br />another<br />line!!!',
+								),
+								'Correction',
+								array(
+									'name' => 'Fix improperly nested tags',
+									'bbc' => '[b]Haha... I invalidated [i]your page![/b][/i]',
+									'html' => '<strong>Haha... I invalidated <em>your page!</em></strong>[/i]',
+								),
+								array(
+									'name' => 'Close all opened tags',
+									'bbc' => '[b]I bolded the rest of this page...',
+									'html' => '<strong>I bolded the rest of this page...</strong>',
 								),
 							);
 
@@ -204,7 +272,7 @@ echo '<!DOCTYPE html>
 <body>
 	<div id="test-cases">
 		<h1>BBCode Testing</h1>
-		<p>The following are the results of the BBCode test cases.</p>';
+		<p>The following are the results of the BBCode test cases. <a href="#results">Jump to results</a>.</p>';
 
 @set_time_limit(5);
 require('speedybbc.class.php');
@@ -253,6 +321,7 @@ foreach($test_cases as $test)
 $completed = microtime(true) - $start_time;
 
 echo '
+		<a name="results"></a>
 		<h2>Test Results</h2>
 		<p>Total tests: ', number_format($total_tests), '</p>
 		<p>Tests passed: <span class="pass">', number_format($total_passed), '</span> (', ($percent = round(((double)$total_passed / $total_tests) * 100, 2)), '%)</p>

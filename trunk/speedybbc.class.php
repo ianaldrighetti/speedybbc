@@ -260,8 +260,7 @@ class SpeedyBBC
 									'name' => 'url',
 									'type' => 'basic',
 									'callback' => create_function('$content, $dummy', '
-																	// !!! TODO: regex
-																	if(true)
+																	if(preg_match(\'~(?:((?:http|ftp)(?:s)?://|www\.)(?:[\w+?\.\w+])+(?:[a-zA-Z0-9\~\!\@\#\$\%\^\&amp;\*\(\)_\-\=\+\\\/\?\.\:\;\\\'\,]*)?)~i\', $content))
 																	{
 																		return $content;
 																	}
@@ -277,7 +276,7 @@ class SpeedyBBC
 									'name' => 'url',
 									'type' => 'value',
 									'value' => array(
-															 'regex' => '', // !!! TODO
+															 'regex' => '~(?:((?:http|ftp)(?:s)?://|www\.)(?:[\w+?\.\w+])+(?:[a-zA-Z0-9\~\!\@\#\$\%\^\&amp;\*\(\)_\-\=\+\\\/\?\.\:\;\'\,]*)?)~i',
 														 ),
 									'before' => '<a href="{value}" target="_blank">',
 									'after' => '</a>',
@@ -287,7 +286,7 @@ class SpeedyBBC
 									'type' => 'basic',
 									'callback' => create_function('$content, $dummy', '
 																	// !!! TODO: regex
-																	if(true)
+																	if(preg_match(\'~(?:((?:http|ftp)(?:s)?://|www\.)(?:[\w+?\.\w+])+(?:[a-zA-Z0-9\~\!\@\#\$\%\^\&amp;\*\(\)_\-\=\+\\\/\?\.\:\;\\\'\,]*)?)~i\', $content))
 																	{
 																		return \'<a href="\'. $content. \'>\'. $content. \'</a>\';
 																	}
@@ -304,7 +303,7 @@ class SpeedyBBC
 									'name' => 'iurl',
 									'type' => 'value',
 									'value' => array(
-															 'regex' => '', // !!! TODO
+															 'regex' => '~(?:((?:http|ftp)(?:s)?://|www\.)(?:[\w+?\.\w+])+(?:[a-zA-Z0-9\~\!\@\#\$\%\^\&amp;\*\(\)_\-\=\+\\\/\?\.\:\;\'\,]*)?)~i',
 														 ),
 									'before' => '<a href="{value}">',
 									'after' => '</a>',
@@ -313,8 +312,7 @@ class SpeedyBBC
 									'name' => 'email',
 									'type' => 'basic',
 									'callback' => create_function('$content, $dummy', '
-																	// !!! TODO
-																	if(true)
+																	if(preg_match(\'~(?:[\w-]+(?:\.[\w-]+)*@(?:[a-z0-9-]+(?:\.[a-z0-9-]+)*?\.[a-z]{2,6}|(?:\d{1,3}\.){3}\d{1,3})(?::\d{4})?)~i\', $content))
 																	{
 																		return $content;
 																	}
@@ -330,7 +328,7 @@ class SpeedyBBC
 									'name' => 'email',
 									'type' => 'value',
 									'value' => array(
-															 'regex' => '', // !!! TODO
+															 'regex' => '~(?:[\w-]+(?:\.[\w-]+)*@(?:[a-z0-9-]+(?:\.[a-z0-9-]+)*?\.[a-z]{2,6}|(?:\d{1,3}\.){3}\d{1,3})(?::\d{4})?)~i',
 														 ),
 									'before' => '<a href="mailto:{value}" target="_blank">',
 									'after' => '</a>',
@@ -340,8 +338,7 @@ class SpeedyBBC
 									'name' => 'img',
 									'type' => 'basic',
 									'callback' => create_function('$content, $dummy', '
-																	// !!! TODO
-																	if(true)
+																	if(preg_match(\'~(?:((?:http)(?:s)?://|www\.)(?:[\w+?\.\w+])+(?:[a-zA-Z0-9\~\!\@\#\$\%\^\&amp;\*\(\)_\-\=\+\\\/\?\.\:\;\\\'\,]*)?)~i\', $content))
 																	{
 																		return $content;
 																	}
@@ -365,8 +362,7 @@ class SpeedyBBC
 																								),
 																	),
 									'callback' => create_function('$content, $data', '
-																	// !!! TODO
-																	if(true)
+																	if(preg_match(\'~(?:((?:http)(?:s)?://|www\.)(?:[\w+?\.\w+])+(?:[a-zA-Z0-9\~\!\@\#\$\%\^\&amp;\*\(\)_\-\=\+\\\/\?\.\:\;\\\'\,]*)?)~i\', $content))
 																	{
 																		return \'<img src="\'. $content. \'" width="\'. $data[\'width\']. \'" height="\'. $data[\'height\']. \'" alt="" />\';
 																	}
@@ -1559,6 +1555,7 @@ class SpeedyBBC
 		// !!! TODO: Find a way to replace stuff NOT in HTML.
 
 		$replacements = array(
+											"\r\n" => '<br />',
 											"\n" => '<br />',
 										);
 

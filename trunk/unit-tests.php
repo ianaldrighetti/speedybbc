@@ -57,6 +57,11 @@ $test_cases = array(
 									'html' => '<span style="text-align: right !important;">Last, but not least, the right... yay</span>',
 								),
 								array(
+									'name' => 'justify',
+									'bbc' => '[justify]This text is justified![/justify]',
+									'html' => '<span style="text-align: justify !important;">This text is justified!</span>',
+								),
+								array(
 									'name' => '[align] tag',
 									'bbc' => '[align=center]I aligned this to the center, I hope.[/align]',
 									'html' => '<span style="text-align: center !important;">I aligned this to the center, I hope.</span>',
@@ -73,9 +78,39 @@ $test_cases = array(
 									'html' => '<span style="font-size: 2.5em !important;">This is big text</span>',
 								),
 								array(
+									'name' => 'Font size (px)',
+									'bbc' => '[size=50px]50px text[/size]',
+									'html' => '<span style="font-size: 50px !important;">50px text</span>',
+								),
+								array(
+									'name' => 'Font size',
+									'bbc' => '[size=13pt]This is in a 13 point font[/size]',
+									'html' => '<span style="font-size: 13pt !important;">This is in a 13 point font</span>',
+								),
+								array(
 									'name' => 'Font color (hex)',
 									'bbc' => '[color=#cc0000]Text colored in #cc0000[/color]',
 									'html' => '<span style="color: #cc0000 !important;">Text colored in #cc0000</span>',
+								),
+								array(
+									'name' => 'Font color (rgb)',
+									'bbc' => '[color=rgb(255, 100, 50)]This text is colored with rgb(255, 100, 50)[/color]',
+									'html' => '<span style="color: rgb(255, 100, 50) !important;">This text is colored with rgb(255, 100, 50)</span>',
+								),
+								array(
+									'name' => 'Font color (rgb percent)',
+									'bbc' => '[color=rgb(100%, 50%, 0%)]This text is colored with rgb(100%, 50%, 0%)[/color]',
+									'html' => '<span style="color: rgb(100%, 50%, 0%) !important;">This text is colored with rgb(100%, 50%, 0%)</span>',
+								),
+								array(
+									'name' => 'Font color (rgba)',
+									'bbc' => '[color=rgba(255, 100, 50, 0.5)]This text is colored with rgba(255, 100, 50, 0.5)[/color]',
+									'html' => '<span style="color: rgba(255, 100, 50, 0.5) !important;">This text is colored with rgba(255, 100, 50, 0.5)</span>',
+								),
+								array(
+									'name' => 'Font color (rgba percent)',
+									'bbc' => '[color=rgba(100%, 50%, 0%, 0.5)]This text is colored with rgba(100%, 50%, 0%, 0.5)[/color]',
+									'html' => '<span style="color: rgba(100%, 50%, 0%, 0.5) !important;">This text is colored with rgba(100%, 50%, 0%, 0.5)</span>',
 								),
 								array(
 									'name' => 'Font color (name)',

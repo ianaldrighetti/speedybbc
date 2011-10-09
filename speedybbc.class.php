@@ -163,10 +163,16 @@ class SpeedyBBC
 									'after' => '</span>',
 								),
 								array(
+									'name' => 'justify',
+									'type' => 'basic',
+									'before' => '<span style="text-align: justify !important;">',
+									'after' => '</span>',
+								),
+								array(
 									'name' => 'align',
 									'type' => 'value',
 									'value' => array(
-															 'regex' => '~^(left|center|right)$~i',
+															 'regex' => '~^(left|center|right|justify)$~i',
 														 ),
 									'before' => '<span style="text-align: {value} !important;">',
 									'after' => '</span>',
@@ -189,7 +195,12 @@ class SpeedyBBC
 									'type' => 'value',
 									'value' => array(
 															 'callback' => create_function('$value', '
-																							 if((string)$value == (string)(int)$value && (int)$value >= 0 && (int)$value <= 7)
+																							 $value = trim($value);
+																							 if(preg_match(\'~^(1|[1-9][0-9]|[1-9][0-9][0-9]|1000)(pt|px)$~\', $value, $matches))
+																							 {
+																								 return ((int)$matches[1]). strtolower($matches[2]);
+																							 }
+																							 elseif((string)$value == (string)(int)$value && (int)$value >= 0 && (int)$value <= 7)
 																							 {
 																							   $sizes = array(0.5, 0.67, 0.83, 1, 1.17, 1.5, 2, 2.5);
 																								 return $sizes[(int)$value]. \'em\';
@@ -207,12 +218,27 @@ class SpeedyBBC
 									'type' => 'value',
 									'value' => array(
 															 'callback' => create_function('$value', '
+																							 $value = trim($value);
 																							 if(preg_match(\'~^#([a-fA-F0-9]{6}|[a-fA-F0-9]{3})$~i\', $value) > 0)
 																							 {
 																								 return $value;
 																							 }
-																							 // !!! TODO: More colors!
-																							 elseif(in_array(strtolower($value), array(\'red\', \'green\', \'blue\', \'black\', \'cyan\', \'yellow\', \'white\', \'brown\', \'darkblue\', \'darkgreen\')))
+																							 elseif(preg_match(\'~^(?:(?:rgb\(\s*([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])\s*,\s*([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])\s*,\s*([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])\s*\))|(?:rgb\(\s*([0-9]|[1-9][0-9]|100)%\s*,\s*([0-9]|[1-9][0-9]|100)%\s*,\s*([0-9]|[1-9][0-9]|100)%\s*\))|(?:rgba\(\s*([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])\s*,\s*([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])\s*,\s*([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])\s*,\s*((?:0?\.\d{1,2})|0|1)\))|(?:rgba\(\s*([0-9]|[1-9][0-9]|100)%\s*,\s*([0-9]|[1-9][0-9]|100)%\s*,\s*([0-9]|[1-9][0-9]|100)%\s*,\s*((?:0?\.\d{1,2})|0|1)\)))$~i\', $value, $matches))
+																							 {
+																								 	$is_alpha = strpos($value, \'rgba\') !== false;
+	                                                $is_percent = strpos($value, \'%\') !== false;
+
+																								 $start = strlen($matches[1]) > 0 ? 1 : (strlen($matches[4]) > 0 ? 4 : (strlen($matches[7]) > 0 ? 7 : 11));
+																								 $values = array((int)$matches[$start]. ($is_percent ? \'%\' : \'\'), (int)$matches[$start + 1]. ($is_percent ? \'%\' : \'\'), (int)$matches[$start + 2]. ($is_percent ? \'%\' : \'\'));
+
+																								 if($is_alpha)
+																								 {
+																									 $values[] = (double)$matches[$start + 3];
+																								 }
+
+																								 return \'rgb\'. ($is_alpha ? \'a\' : \'\'). \'(\'. implode(\', \', $values). \')\';
+																							 }
+																							 elseif(in_array(strtolower($value), array(\'aliceblue\', \'antiquewhite\', \'aqua\', \'aquamarine\', \'azure\', \'beige\', \'bisque\', \'black\', \'blanchedalmond\', \'blue\', \'blueviolet\', \'brown\', \'burlywood\', \'cadetblue\', \'chartreuse\', \'chocolate\', \'coral\', \'cornflowerblue\', \'cornsilk\', \'crimson\', \'cyan\', \'darkblue\', \'darkcyan\', \'darkgoldenrod\', \'darkgray\', \'darkgreen\', \'darkkhaki\', \'darkmagenta\', \'darkolivegreen\', \'darkorange\', \'darkorchid\', \'darkred\', \'darksalmon\', \'darkseagreen\', \'darkslateblue\', \'darkslategray\', \'darkturquoise\', \'darkviolet\', \'deeppink\', \'deepskyblue\', \'dimgray\', \'dodgerblue\', \'firebrick\', \'floralwhite\', \'forestgreen\', \'fuchsia\', \'gainsboro\', \'ghostwhite\', \'gold\', \'goldenrod\', \'gray\', \'green\', \'greenyellow\', \'honeydew\', \'hotpink\', \'indianred\', \'indigo\', \'ivory\', \'khaki\', \'lavender\', \'lavenderblush\', \'lawngreen\', \'lemonchiffon\', \'lightblue\', \'lightcoral\', \'lightcyan\', \'lightgoldenrodyellow\', \'lightgreen\', \'lightgrey\', \'lightpink\', \'lightsalmon\', \'lightseagreen\', \'lightskyblue\', \'lightslategray\', \'lightsteelblue\', \'lightyellow\', \'lime\', \'limegreen\', \'linen\', \'magenta\', \'maroon\', \'mediumaquamarine\', \'mediumblue\', \'mediumorchid\', \'mediumpurple\', \'mediumseagreen\', \'mediumslateblue\', \'mediumspringgreen\', \'mediumturquoise\', \'mediumvioletred\', \'midnightblue\', \'mintcream\', \'mistyrose\', \'moccasin\', \'navajowhite\', \'navy\', \'oldlace\', \'olive\', \'olivedrab\', \'orange\', \'orangered\', \'orchid\', \'palegoldenrod\', \'palegreen\', \'paleturquoise\', \'palevioletred\', \'papayawhip\', \'peachpuff\', \'peru\', \'pink\', \'plum\', \'powderblue\', \'purple\', \'red\', \'rosybrown\', \'royalblue\', \'saddlebrown\', \'salmon\', \'sandybrown\', \'seagreen\', \'seashell\', \'sienna\', \'silver\', \'skyblue\', \'slateblue\', \'slategray\', \'snow\', \'springgreen\', \'steelblue\', \'tan\', \'teal\', \'thistle\', \'tomato\', \'turquoise\', \'violet\', \'wheat\', \'white\', \'whitesmoke\', \'yellow\', \'yellowgreen\')))
 																							 {
 																								 return $value;
 																							 }

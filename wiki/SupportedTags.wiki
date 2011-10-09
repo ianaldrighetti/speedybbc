@@ -1,0 +1,47 @@
+#summary Lists the built-in BBCode tags in the SpeedyBBC parser.
+#labels Featured
+
+---
+<span style="text-align: center; color: red;">This page is currently a work-in-progress!</span>
+---
+
+= Supported Tags =
+
+This page lists the currently supported BBCode tags which come built-in with the SpeedyBBC parser.
+
+=== Basic Tags ===
+
+*`[b]` - Bold* - Bolds the surrounded text with `<strong>`.
+
+*`[i]` - Italics* - Italicizes the surrounded text with `<em>`.
+
+*`[u]` - Underline* - Underlines the surrounded text with `<span style="text-decoration: underline !important;">`.
+
+*`[s]` - Strike-through* - Puts a strike through the surrounded text with `<del>`.
+
+*`[sup]` - Superscript* - Makes a superscript with `<sup>`.
+
+*`[sub]` - Subscript* - Makes a subscript with `<sub>`.
+
+*`[nobbc]` - No BBC parsing* - When text is surrounded with `[nobbc]...[/nobbc]` the text will not be parsed (including links and smileys) and will appear as-is.
+
+=== Alignment Tags ===
+
+*`[left]` - Left* - Aligns the surrounded text to the left using `<span style="text-align: left !important;">`.
+
+*`[center]` - Center* - Aligns the surrounded text to the center using `<span style="text-align: center !important;">`.
+
+*`[right]` - Right* - Aligns the surrounded text to the right using `<span style="text-align: right !important;">`.
+
+*`[justify]` - Justify* - Justifies the surrounded text using `<span style="text-align: justify !important;">`.
+
+=== Font Tags ===
+
+*`[size=0-7]` - Font size* - Changes the font size for the surrounded text. 0 will become 0.5em, 1 will become 0.67em, then 0.83em, 1em, 1.17em, 1.5em, 2em and 7 will become 2.5em.
+
+*`[size=1-1000(pt|px)]` - Font size (pt or px)* - Changes the font size for the surrounded text, ranging from 1 to 1000 in pt (point) or px.
+
+=== Miscellaneous ===
+acronym abbr class="bbcode-acronym"
+
+*`[align=left|center|right|justify]` - Align* - Aligns the surrounded text with the specified value. This is simply an alternative to the alignments above.

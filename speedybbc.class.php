@@ -22,6 +22,10 @@
 //                              Version: 1.0                              //
 ////////////////////////////////////////////////////////////////////////////
 
+// Just a couple SpeedyBBC parsing options.
+define('SPEEDYOPT_DISAUTOLINK', 0x1);
+define('SPEEDYOPT_DISSMILEYS', 0x2);
+
 /*
 	Class: SpeedyBBC
 
@@ -87,6 +91,9 @@ class SpeedyBBC
 		$this->smileys = array();
 		$this->index = array(
 										 'names' => array(),
+										 'empty' => array(),
+										 'tags' => array(),
+										 'valid' => true,
 									 );
 
 		// Let's check to see if we can set a default encoding.
@@ -454,6 +461,31 @@ class SpeedyBBC
 									'block_level' => true,
 									'required_parents' => array('columns'),
 								),
+								array(
+									'name' => 'table',
+									'type' => 'basic',
+									'before' => '<table>',
+									'after' => '</table>',
+									'block_level' => true,
+									'required_children' => array('tr'),
+								),
+								array(
+									'name' => 'tr',
+									'type' => 'basic',
+									'before' => '<tr>',
+									'after' => '</tr>',
+									'block_level' => true,
+									'required_parents' => array('table'),
+									'required_children' => array('td'),
+								),
+								array(
+									'name' => 'td',
+									'type' => 'basic',
+									'before' => '<td>',
+									'after' => '</td>',
+									'block_level' => true,
+									'required_parents' => array('tr'),
+								),
 							);
 
 			// Let's add the tags.
@@ -490,8 +522,17 @@ class SpeedyBBC
 			return false;
 		}
 
+		// There is a bit of a requirement... We will require that when one tag
+		// name is considered empty, all other variations of that tag with the
+		// same name must be empty as well.
+		if((isset($this->index['empty'][$tag->name()]) && !$tag->is_empty()) || (isset($this->index['names'][$tag->name()]) && !isset($this->index['empty'][$tag->name()]) && $tag->is_empty()))
+		{
+			// Sorry, that's no good!
+			return false;
+		}
+
 		// Not much else to do but add it.
-		$tag_index = $this->strtolower($this->substr($tag->name(), 0, 1));
+		$tag_index = $this->substr($tag->name(), 0, 1);
 
 		// We do this to make the search for a tag much quicker than one huge
 		// array.
@@ -527,6 +568,23 @@ class SpeedyBBC
 			// The first of it's kind!
 			$this->index['names'][$tag->name()] = 1;
 		}
+
+		// An empty tag? Let's mark all names such as these as such.
+		if($tag->is_empty())
+		{
+			if(isset($this->index['empty'][$tag->name()]))
+			{
+				$this->index['empty'][$tag->name()]++;
+			}
+			else
+			{
+				$this->index['empty'][$tag->name()] = 1;
+			}
+		}
+
+		// Since something was added the basic, value and attribute indexes are
+		// no longer valid!
+		$this->index['valid'] = false;
 
 		return true;
 	}
@@ -636,6 +694,17 @@ class SpeedyBBC
 						unset($this->index['names'][$defined->name()]);
 					}
 
+					// An empty? An extra step, then.
+					if($defined->is_empty())
+					{
+						$this->index['empty'][$defined->name()]--;
+
+						if($this->index['empty'][$defined->name()] <= 0)
+						{
+							unset($this->index['empty'][$defined->name()]);
+						}
+					}
+
 					// Flag that we found and removed something.
 					$found++;
 				}
@@ -654,9 +723,28 @@ class SpeedyBBC
 						unset($this->index['names'][$defined->name()]);
 					}
 
+					// An empty? An extra step, then.
+					if($defined->is_empty())
+					{
+						$this->index['empty'][$defined->name()]--;
+
+						if($this->index['empty'][$defined->name()] <= 0)
+						{
+							unset($this->index['empty'][$defined->name()]);
+						}
+					}
+
+					// The indexes are no longer valid! Darn!
+					$this->index['valid'] = false;
 
 					return true;
 				}
+			}
+
+			// Only invalidate the index if there were tags found and removed.
+			if($found > 0)
+			{
+				$this->index['valid'] = false;
 			}
 
 			return $found;
@@ -921,6 +1009,12 @@ class SpeedyBBC
 		// That will then be used to interpret the message into HTML.
 		$struct = $this->to_struct($message);
 
+		// Is the tag index invalid? Then fix it!
+		if(!$this->index['valid'])
+		{
+			$this->rebuild_index();
+		}
+
 		// Now we need to interpret that structure into something useful, like
 		// actually use the defined BBCode tags, ya know?
 		$message = $this->interpret_struct($struct);
@@ -957,10 +1051,12 @@ class SpeedyBBC
 	private function to_struct($message)
 	{
 		// Initialize a few useful things.
-		$struct = array();
-		$length = $this->strlen($message);
 		$cur_pos = 0;
+		$last_text_index = -1;
+		$length = $this->strlen($message);
 		$prev_pos = 0;
+		$struct = array();
+		$struct_length = 0;
 
 		// Let's look for a possible tag.
 		while(($pos = $this->strpos($message, '[', $cur_pos)) !== false && $pos + 1 < $length && $this->substr($message, $pos + 1, 1) != ' ')
@@ -1000,10 +1096,13 @@ class SpeedyBBC
 			{
 				// Yup, we sure did! So we will want to make a node to contain the
 				// text preceding the tag.
+				$saved = false;
 				if($prev_pos != $last_pos)
 				{
 					$node = new TextNode($this->substr($message, $prev_pos, $last_pos - $prev_pos));
-					$struct[] = $node;
+					$struct[$struct_length++] = $node;
+					$last_text_index = $struct_length - 1;
+					$saved = true;
 				}
 
 				// Now for the tag itself.
@@ -1013,9 +1112,28 @@ class SpeedyBBC
 				if(isset($this->index['names'][$node->getTag()]))
 				{
 					// Yup, we do.
-					$struct[] = $node;
+					$struct[$struct_length++] = $node;
+					$last_text_index = -1;
 
 					// Now, everything has been handled up to this point.
+					$prev_pos = $pos + 1;
+				}
+				// We need to do a little something if the previous content was
+				// saved but not the TagNode itself.
+				elseif($saved)
+				{
+					// We want to save this with the previous text node if we can.
+					if($last_text_index > -1)
+					{
+						$struct[$last_text_index]->appendText($node->text());
+					}
+					// Otherwise we will need to create one.
+					else
+					{
+						$struct[$struct_length++] = new TextNode($node->text());
+						$last_text_index = $struct_length - 1;
+					}
+
 					$prev_pos = $pos + 1;
 				}
 			}
@@ -1029,11 +1147,134 @@ class SpeedyBBC
 		{
 			// Yup, and we don't want to leave it out!
 			$node = new TextNode($this->substr($message, $prev_pos));
-			$struct[] = $node;
+			$struct[$struct_length++] = $node;
 		}
 
 		// And here you go. I did my job...
 		return $struct;
+	}
+
+	/*
+		Method: tag_is_empty
+
+		Determines whether the specified tag name is an empty tag.
+
+		Parameters:
+			string $tag_name - The name of the tag name to check.
+
+		Returns:
+			bool - Returns true if the specified tag name is an empty tag, false
+						 if not.
+	*/
+	private function tag_is_empty($tag_name)
+	{
+		return isset($this->index['empty'][$tag_name]) && $this->index['empty'][$tag_name] > 0;
+	}
+
+	/*
+		Method: rebuild_index
+
+		A private method which is used to build an index of tags for fast
+		retrieval when finding tags with the same name and type.
+
+		Parameters:
+			none
+
+		Returns:
+			void - Nothing is returned by this method.
+	*/
+	private function rebuild_index()
+	{
+		// Since the index is being rebuilt we want to clear it all.
+		$this->index['tags'] = array();
+
+		// Let's go through the existing tags and build the index... Makes sense
+		// after all.
+		foreach($this->tags as $first_char => $tags)
+		{
+			// ... and another for each.
+			foreach($tags as $index => $tag)
+			{
+				// We don't want to have multiple copies of the same tag, so we will
+				// just save the index.
+				$this->index['tags'][substr($tag->type(), 0, 6) == 'empty-' ? substr($tag->type(), 6) : $tag->type()][$first_char][] = $index;
+			}
+		}
+
+		// The index is now valid!
+		$this->index['valid'] = true;
+	}
+
+	/*
+		Method: find_tags
+
+		Searches the index of supported BBCode tags to find matches for the
+		specified tag.
+
+		Parameters:
+			object $node - A TagNode to find matches for.
+
+		Returns:
+			array - Returns an array containing matches to the specified tag and
+							an empty array if nothing was found (of course).
+	*/
+	private function find_tags($node)
+	{
+		// What type of tag were we given?
+		$type = $node->getTagType();
+
+		// Get the first character of the tag name as well.
+		$first_char = $this->substr($node->getTag(), 0, 1);
+
+		// Let's take a look to see if we can find anything.
+		if(isset($this->index['tags'][$type][$first_char]))
+		{
+			$matches = array();
+			$attributes = $type == 'attribute' ? array_keys($node->getAttributes()) : false;
+			foreach($this->index['tags'][$type][$first_char] as $index)
+			{
+				// Make sure the names match.
+				if($this->tags[$first_char][$index]->name() != $node->getTag())
+				{
+					continue;
+				}
+				// We only need to do a check on attribute type tags.
+				elseif($type == 'attribute')
+				{
+					// Let's check if they are all there.
+					$is_match = true;
+					foreach($this->tags[$first_char][$index]->attributes() as $attr_name => $options)
+					{
+						// Make sure that the attribute is set or that it isn't required
+						// in such as case.
+						if(!in_array($attr_name, $attributes) && !$options['optional'])
+						{
+							// It's not a match.
+							$is_match = false;
+
+							break;
+						}
+					}
+
+					// So, was it a match?
+					if(!$is_match)
+					{
+						// Nope.
+						continue;
+					}
+				}
+
+				// Save it... Nothing else to do.
+				$matches[] = $this->tags[$first_char][$index];
+			}
+
+			return $matches;
+		}
+		else
+		{
+			// We didn't find anything because there is nothing like that!
+			return array();
+		}
 	}
 
 	/*
@@ -1081,50 +1322,7 @@ class SpeedyBBC
 					// doesn't do the job... We won't want to keep iterating through
 					// the tag array.
 					$found = false;
-					$matches = array();
-
-					// !!! TODO: An index of tags should be created for even faster
-					// 					 retrieval.
-
-					foreach($this->tags[$tag_index] as $tag)
-					{
-						// Make sure the name and type match.
-						if($tag->name() == $struct[$pos]->getTag() && substr($tag->type(), -strlen($struct[$pos]->getTagType()), strlen($struct[$pos]->getTagType())) == $struct[$pos]->getTagType())
-						{
-							// Well, we need to check something if it is an attribute tag.
-							if($struct[$pos]->type() == 'attribute')
-							{
-								// Make sure all the attributes are there.
-								$given_attrs = array_keys($struct[$pos]->getAttributes());
-								$tag_attrs = array_keys($tag->attributes());
-
-								// They can't have matching attributes if the count doesn't
-								// match...
-								if(count($given_attrs) == count($tag_attrs))
-								{
-									$attrs_matching = 0;
-									foreach($tag_attrs as $attr_name)
-									{
-										// Make sure this attribute was specified.
-										if(in_array($attr_name, $given_attrs))
-										{
-											$attrs_matching++;
-										}
-									}
-
-									// Did they match?
-									if(count($tag_attrs) != $attrs_matching)
-									{
-										// Nope, so let's move on.
-										continue;
-									}
-								}
-							}
-
-							// We found a match!
-							$matches[] = $tag;
-						}
-					}
+					$matches = $this->find_tags($struct[$pos]);
 
 					// So, did we find it?
 					if(count($matches) > 0)
@@ -1810,6 +2008,27 @@ class BBCodeTag
 	// handled, but all other opened quote tags would remain untouched.
 	private $block_level;
 
+	// Variable: disallowed_children
+	// Declares a set of tags which will not be parsed inside the defined tag.
+	// If this option is set then the allowed children option is automatically
+	// disabled.
+	private $disallowed_children;
+
+	// Variable: allowed_children
+	// Declares a set of tags which will be parsed inside of the defined tag,
+	// but any tags not in the list will not be parsed. This is the inverse of
+	// the disallowed children option. If this option is set the disallowed
+	// children option is automatically disabled.
+	private $allowed_children;
+
+	// Variable: disable_formatting
+	// An option which specifies the type of formatting that is to be disabled
+	// when parsing the content within the defined tag, for example,
+	// specifying SPEEDYOPT_DISAUTOLINK will disable automatically linking
+	// URL's and SPEEDYOPT_DISSMILEYS will disable the replacement of smileys
+	// with images. These options can be combined with a bitwise OR (|).
+	private $disable_formatting;
+
 	// Variable: replacements
 	// This is an array containing values that need replacing in the after
 	// part of the BBCode tag -- it is used by the BBCode parser itself, and
@@ -1852,12 +2071,16 @@ class BBCodeTag
 		$this->required_parents = array();
 		$this->required_children = array();
 		$this->block_level = false;
+		$this->disallowed_children = array();
+		$this->allowed_children = array();
+		$this->disable_formatting = null;
 		$this->replacements = array();
 
 		// Alright, let's set those options, if you did.
 		foreach(array('name', 'type', 'value', 'attributes', 'parse_content',
 									'callback', 'before', 'after', 'required_parents',
-									'required_children', 'block_level') as $attribute)
+									'required_children', 'block_level', 'disallowed_children',
+									'allowed_children', 'disable_formatting') as $attribute)
 		{
 			if(isset($options[$attribute]))
 			{
@@ -2036,6 +2259,18 @@ class BBCodeTag
 											 attribute through.
 				callback callback - A callback which will be passed the value of the
 														attribute.
+				bool optional - Whether the attribute is optional, if it is the
+												replace option is REQUIRED.
+				string replace - A string which contains the HTML attribute with a
+												 value to be replaced if the attribute is optional.
+												 For example, if a width attribute is optional this
+												 option may be: ' width="[value]"' where [value]
+												 will be replaced with the value specified in the
+												 BBCode tag, then this replace value would replace
+												 [width] in the before/after values of the tag. If
+												 no option is supplied and the callback doesn't
+												 provide one either the, in this example, [width]
+												 would simply be replaced with nothing.
 
 			Just like a tag's name, an attribute can only contain: a-z, 0-9, -,
 			and _, they are also case-insensitive.
@@ -2065,8 +2300,9 @@ class BBCodeTag
 		{
 			$name = strtolower(trim($name));
 
-			// Make sure the attribute name is alright.
-			if(preg_match('~^([a-z0-9_-])+$~', $name) == 0)
+			// Make sure the attribute name is alright and that a replace value is
+			// specified if the tag is optional.
+			if(preg_match('~^([a-z0-9_-])+$~', $name) == 0 || (!empty($options['optional']) && !isset($options['replace'])))
 			{
 				// So, that's not okay ;-)
 				return false;
@@ -2075,6 +2311,8 @@ class BBCodeTag
 			$accepted[$name] = array(
 													 'regex' => isset($options['regex']) ? $options['regex'] : null,
 													 'callback' => isset($options['callback']) && is_callable($options['callback']) ? $options['callback'] : null,
+													 'optional' => !empty($options['optional']),
+													 'replace' => !empty($options['optional']) && isset($options['replace']) ? $options['replace'] : null,
 												 );
 		}
 
@@ -2267,6 +2505,132 @@ class BBCodeTag
 	}
 
 	/*
+		Method: set_disallowed_children
+
+		Sets tags which will not be parsed within the currently defined tag.
+
+		Parameters:
+			array $disallowed - An array containing tag names which will not be
+													parsed.
+
+		Returns:
+			void - Nothing is returned by this method.
+
+		Note:
+			If this option is set then the <BBCodeTag::set_allowed_children>
+			option is automatically disabled.
+	*/
+	public function set_disallowed_children($disallowed)
+	{
+		if(is_array($disallowed))
+		{
+			// Reset this option.
+			$this->disallowed_children = array();
+
+			foreach($disallowed as $tag_name)
+			{
+				$tag_name = trim($tag_name);
+
+				// No sense in clogging up the "tubes" if the tag name isn't even
+				// allowed...
+				if(preg_match('~^([a-z0-9_-])+$~i', $tag_name) > 0)
+				{
+					// Looks good!
+					$this->disallowed_children[] = $this->strtolower($tag_name);
+				}
+			}
+
+			// Oh, and don't forget to disable the allowed children option!
+			$this->set_allowed_children(false);
+		}
+		// Not an array? Then we will assume you want to unset this option.
+		else
+		{
+			$this->disallowed_children = array();
+		}
+	}
+
+	/*
+		Method: set_allowed_children
+
+		Sets tags that are only allowed to be parsed within the currently
+		defined tag.
+
+		Parameters:
+			array $allowed - An array containing tag names which will only be
+											 allowed to be parsed within the currently defined
+											 tag.
+
+		Returns:
+			void - Nothing is returned by this method.
+
+		Note:
+			If this option is set, the <BBCodeTag::set_disallowed_children> option
+			will automatically be disabled.
+	*/
+	public function set_allowed_children($allowed)
+	{
+		if(is_array($allowed))
+		{
+			$this->allowed_children = array();
+
+			foreach($allowed as $tag_name)
+			{
+				$tag_name = trim($tag_name);
+
+				if(preg_match('~^([a-z0-9_-])+$~i', $tag_name) > 0)
+				{
+					$this->allowed_children[] = $this->strtolower($tag_name);
+				}
+			}
+
+			// Now disable the disallowed children option.
+			$this->set_disallowed_children(false);
+		}
+		else
+		{
+			$this->allowed_children = array();
+		}
+	}
+
+	/*
+		Method: set_disable_formatting
+
+		Sets what type of formatting should be disabled, such as automatically
+		linking URL's and replacing smiley codes with images.
+
+		Parameters:
+			int $options - The type of formatting to disable, see the notes for
+										 more information.
+
+		Returns:
+			void - Nothing is returned by this method.
+
+		Note:
+			The following options are accepted, and can be combined:
+				SPEEDYOPT_DISAUTOLINK - Disables automatically linking URL's.
+				SPEEDYOPT_DISSMILEYS - Disables automatically replacing smiley codes
+															 (such as :)) with images.
+	*/
+	public function set_disable_formatting($options)
+	{
+		$this->disable_formatting = 0;
+
+		// Disable automatic linking?
+		if($options & SPEEDYOPT_DISAUTOLINK)
+		{
+			$this->disable_formatting |= SPEEDYOPT_DISAUTOLINK;
+		}
+
+		// How about smileys? Want to kill those too?!
+		if($options & SPEEDYOPT_DISSMILEYS)
+		{
+			// Geez, what a party pooper you are!
+			$this->disable_formatting |= SPEEDYOPT_DISSMILEYS;
+		}
+	}
+
+	/*
 		Method: set_replacements
 
 		Sets an array containing values which need replacing in the after part
@@ -2348,6 +2712,21 @@ class BBCodeTag
 		return $this->block_level;
 	}
 
+	public function disallowed_children()
+	{
+		return $this->disallowed_children;
+	}
+
+	public function allowed_children()
+	{
+		return $this->allowed_children;
+	}
+
+	public function disable_formatting($option = null)
+	{
+		return $option === null ? $this->disable_formatting : $this->disable_formatting & $option;
+	}
+
 	public function replacements()
 	{
 		return $this->replacements;
@@ -2405,6 +2784,14 @@ class BBCodeTag
 	protected function strlen($str)
 	{
 		return function_exists('mb_strlen') ? mb_strlen($str) : strlen($str);
+	}
+
+	/*
+		Method: strtolower
+	*/
+	protected function strtolower($str)
+	{
+		return function_exists('mb_strtolower') ? mb_strtolower($str) : strtolower($str);
 	}
 }
 
@@ -2605,6 +2992,11 @@ class TagNode extends Node
 	// Whether the tag contained is a closing tag, i.e. [/b]
 	protected $is_closing;
 
+	// Variable: ignore
+	// Whether the node should be ignored when being handled by the
+	// interpreter, which is likely due to the tag never being opened.
+	protected $ignore;
+
 	/*
 		Constructor: __construct
 
@@ -2625,6 +3017,7 @@ class TagNode extends Node
 		$this->setText($text);
 		$this->type = 'tag';
 		$this->setIsClosing($is_closing);
+		$this->ignore = false;
 	}
 
 	/*
@@ -2981,6 +3374,40 @@ class TagNode extends Node
 		{
 			return null;
 		}
+	}
+
+	/*
+		Method: ignore
+
+		Whether the tag should be ignored when the entire structure is being
+		parsed by the interpreter.
+
+		Parameters:
+			none
+
+		Returns:
+			bool - Returns true if the tag should be ignored, false if not.
+	*/
+	public function ignore()
+	{
+		return $this->ignore;
+	}
+
+	/*
+		Method: setIgnore
+
+		Sets whether the tag should be ignored when the entire structure is
+		being parsed.
+
+		Parameters:
+			bool $ignore - Whether the tag should be ignored.
+
+		Returns:
+			void - Nothing is returned by this method.
+	*/
+	public function setIgnore($ignore)
+	{
+		$this->ignore = !empty($ignore);
 	}
 }
 ?>

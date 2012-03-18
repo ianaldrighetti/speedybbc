@@ -260,6 +260,11 @@ $test_cases = array(
 									'bbc' => '[b]I bolded the rest of this page...',
 									'html' => '<strong>I bolded the rest of this page...</strong>',
 								),
+								array(
+									'name' => 'Wrong children',
+									'bbc' => '[table][tr]There is no td tag...[/tr][/table]',
+									'html' => '<table><tr></tr></table>There is no td tag...',
+								),
 							);
 
 echo '<!DOCTYPE html>

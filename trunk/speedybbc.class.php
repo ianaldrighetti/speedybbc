@@ -1051,11 +1051,19 @@ class SpeedyBBC
 	private function to_struct($message)
 	{
 		// Initialize a few useful things.
+		// Such as the current position within the string.
 		$cur_pos = 0;
+		
+		// The index within $struct that contains the last text index, this way
+		// we can append anything to it if we have to (we don't want one text
+		// node after another).
 		$last_text_index = -1;
 		$length = $this->strlen($message);
 		$prev_pos = 0;
 		$struct = array();
+		
+		// We also don't want to recalculate the size of $struct over and over
+		// again.
 		$struct_length = 0;
 
 		// Let's look for a possible tag.
@@ -1120,7 +1128,7 @@ class SpeedyBBC
 				}
 				// We need to do a little something if the previous content was
 				// saved but not the TagNode itself.
-				elseif($saved)
+				elseif(!empty($saved))
 				{
 					// We want to save this with the previous text node if we can.
 					if($last_text_index > -1)
@@ -1277,6 +1285,13 @@ class SpeedyBBC
 		}
 	}
 
+  private function interpret_struct($struct)
+  {
+
+    
+    echo '<pre>'; print_r($struct); echo '</pre>';
+  }
+
 	/*
 		Method: interpret_struct
 
@@ -1289,7 +1304,7 @@ class SpeedyBBC
 		Returns:
 			string - Returns the interpreted message.
 	*/
-	private function interpret_struct($struct)
+	private function interpret_struct_old($struct)
 	{
 		// We will need a few variables to keep track of things. Like the
 		// message which has been generated so far.
@@ -1308,7 +1323,7 @@ class SpeedyBBC
 		while($pos < $length)
 		{
 			// Is this a tag?
-			if($struct[$pos]->type() == 'tag' && !$struct[$pos]->is_closing())
+			if($struct[$pos]->type() == 'tag' && !$struct[$pos]->ignore() && !$struct[$pos]->is_closing())
 			{
 				// Looks like we have some work to do.
 				// Well, if we have a tag which is defined.
@@ -1431,16 +1446,15 @@ class SpeedyBBC
 								{
 									if($struct[$pos]->type() == 'tag' && !$struct[$pos]->is_closing())
 									{
-										$opened[$index++] = $struct[$pos]->getTag();
+										// We want to save all the tag names and their levels.
+										$base_tags[$level][] = $struct[$pos]->getTag();
 
-										// Only if we are at level 1 will this be considered a
-										// base tag... Which is right above the current tag.
-										if($level == 1)
+										// We only need to change this if it isn't an empty tag.
+										if(!$this->tag_is_empty($struct[$pos]->getTag()))
 										{
-											$base_tags[] = $struct[$pos]->getTag();
+											$opened[$index++] = $struct[$pos]->getTag();
+											$level++;
 										}
-
-										$level++;
 									}
 									elseif($struct[$pos]->type() == 'tag')
 									{
@@ -1473,9 +1487,9 @@ class SpeedyBBC
 										}
 									}
 									// We also need to consider the possibility of text...
-									elseif($level == 1)
+									else
 									{
-										$base_tags[] = 'text';
+										$base_tags[$level][] = 'text';
 									}
 
 									// Did we closing everything?
@@ -1523,7 +1537,7 @@ class SpeedyBBC
 								}
 								// If they don't want it parsed, then we will just collect
 								// all the text values together.
-								else
+								elseif(is_array($tag_content))
 								{
 									foreach($tag_content as $cn)
 									{
@@ -1564,14 +1578,19 @@ class SpeedyBBC
 							// We just checked for required parents, how about children?
 							if(count($match->required_children()) > 0)
 							{
+								if(!defined('hahadone'))
+								{
+									echo '<pre>'; print_r($base_tags); echo '</pre>';
+									define('hahadone', 1);
+								}echo '~'. $match->name();
 								// Well, if there are no base tags, then there certainly
 								// aren't any children.
-								if(count($base_tags) > 0)
+								if(isset($base_tags[1]) && count($base_tags[1]) > 0)
 								{
 									// Make sure all the children which will appear
 									// immediately are allowed.
 									$disallowed_found = false;
-									foreach($base_tags as $base_tname)
+									foreach($base_tags[1] as $base_tname)
 									{
 										if(!in_array($base_tname, $match->required_children()))
 										{
@@ -1688,7 +1707,7 @@ class SpeedyBBC
 				}
 			}
 			// Must mean this tag is a closing tag.
-			elseif($struct[$pos]->type() == 'tag')
+			elseif($struct[$pos]->type() == 'tag' && !$struct[$pos]->ignore())
 			{
 				// Before we start closing a bunch of tags, why don't we see if this
 				// was even opened in the first place.
@@ -2810,11 +2829,16 @@ class Node
 	// Variable: type
 	// The type of node being contained within this Node instance.
 	protected $type;
+	
+	// Variable: level
+	// Contains the level at which the node resides within the parsed message.
+	protected $level;
 
 	public function __construct()
 	{
 		$this->text = null;
 		$this->type = null;
+		$this->level = null;
 	}
 
 	/*
@@ -2848,7 +2872,39 @@ class Node
 	{
 		return $this->type;
 	}
-
+	
+	/*
+    Method: isText
+    
+    Returns whether the node is a text node.
+    
+    Parameters: 
+      none
+     
+     Returns:
+      bool - Returns true if the node is a text node.
+  */
+	public function isText()
+	{
+		return $this->type() == 'text';
+	}
+	
+	/*
+		Method: isTag
+		
+		Returns whether the node is a tag node.
+		
+		Parameters:
+			none
+		
+		Returns:
+			bool - Returns true if the node is a tag node.
+	*/
+	public function isTag()
+	{
+		return $this->type() == 'tag';
+	}
+	
 	/*
 		Method: appendText
 
@@ -2896,7 +2952,44 @@ class Node
 	{
 		$this->type = $type;
 	}
+	
+	/*
+		Method: level
+		
+		Returns the level at which the node resides within the parsed message.
 
+		Parameters:
+			none
+		
+		Returns:
+			int - Returns the level at which the node resides.
+	*/
+	public function level()
+	{
+		return $this->level;
+	}
+	
+	/*
+		Method: setLevel
+		
+		Sets the level at which the node resides within the parsed message.
+		
+		Parameters:
+			int $level - The level at which to set the node at.
+		
+		Returns:
+			void - Nothing is returned by this method.
+	*/
+	public function setLevel($level)
+	{
+		if((string)$level != (string)(int)$level || (int)$level < 0)
+		{
+			return;
+		}
+		
+		$this->level = (int)$level;
+	}
+	
 	/*
 		Method: strlen
 

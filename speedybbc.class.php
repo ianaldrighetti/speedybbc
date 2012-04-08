@@ -1489,6 +1489,10 @@ class SpeedyBBC
 		// traverse the parsed message.
 		$pos = 0;
 
+		// Keep track of opened tags...
+		$opened_tags = array();
+		$opened_count = 0;
+
 		// And nope, we do not need to keep track of the opened tags, as the
 		// lexer took care of that for us :-).
 		while($pos < $struct_length)
@@ -1511,6 +1515,7 @@ class SpeedyBBC
 					{
 						// Let's get to work, and what work it will be :-/.
 						$tag_content = null;
+						$tag_handled = false;
 						foreach($matches as $match)
 						{
 							$data = null;
@@ -1586,17 +1591,164 @@ class SpeedyBBC
 								}
 							}
 
+							// TODO: Disallowed/allowed children
+
 							// Thankfully, parent/child constraints have already been
 							// checked! So we can get right to it!
-						} // END: FOREACH
+							// We may need to gather up the content of the tag.
+							if((is_callable($match->callback()) || $match->parse_content() === false) && $tag_content === null)
+							{
+								// Luckily there is a function to do this for us.
+								$tag_content = array_slice($struct, $pos + 1, $struct[$pos]->closingAt() - $pos - 1);
+							}
+
+							$tag_handled_content = '';
+							if(is_callable($match->callback()) || $match->parse_content() === false)
+							{
+								// Does the tag want the content parsed or not?
+								if($match->parse_content())
+								{
+									$tag_handled_content = $this->interpret_struct($tag_content);
+								}
+								// If the tag doesn't want the content parsed, then we will
+								// just collect all the text components together.
+								elseif(is_array($tag_content))
+								{
+									foreach($tag_content as $n)
+									{
+										$tag_handled_content .= $n->text();
+									}
+								}
+							}
+
+							$tag_returned_content = false;
+							if(is_callable($match->callback()) && ($tag_returned_content = call_user_func($match->callback(), $tag_handled_content, $data)) === false)
+							{
+								// That's not a good sign.
+								continue;
+							}
+
+							if($match->block_level())
+							{
+								// Looks like we may need to close some tags.
+								$popped = null;
+								while(($popped = array_pop($opened_tags)) !== null && !$popped['match']->block_level())
+								{
+									$message .= str_replace(array_keys($popped['replacements']), array_values($popped['replacements']), $popped['match']->after());
+									$opened_count--;
+
+									// Mark the other closing tag as ignored, it won't be
+									// needed anymore.
+									$struct[$popped['pos']->closingAt()]->setIgnore(true);
+								}
+
+								if($popped !== null && $popped['match']->block_level())
+								{
+									// Woops, we should probably put that back!
+									$opened_tags[] = $popped;
+									$opened_count++;
+								}
+							}
+
+							// There could be some things in need of replacing.
+							$replacements = array();
+
+							// {value} gets replaced with the value.
+							if($struct[$pos]->getTagType() == 'value')
+							{
+								$replacements['{value}'] = $data;
+							}
+							// ... and all {attribute name}'s get replace with their
+							// values as well.
+							elseif($struct[$pos]->getTagType() == 'attribute')
+							{
+								foreach($data as $attrName => $attrValue)
+								{
+									$replacements['{'. $attrName. '}'] = $attrValue;
+								}
+							}
+
+							// If there was a callback to handle the content within the
+							// tag, we may need to have a replacement for that as well.
+							if($tag_returned_content !== false)
+							{
+								$replacements['[content]'] = $tag_returned_content;
+							}
+
+							$message .= str_ireplace(array_keys($replacements), array_values($replacements), $match->before());
+
+							// Was there content which needed to be added?
+							if(is_callable($match->callback()) || !$match->parse_content())
+							{
+								// If the BBCode tag took the handled content then we want
+								// to use the returned content, otherwise the previously
+								// handled (handled being parsed or not).
+								$message .= $tag_returned_content !== false ? $tag_returned_content : $tag_handled_content;
+							}
+
+							// Do we need to add this to the opened tags array? We won't
+							// need to if the tag is empty, if the BBCode tag returned the
+							// content, or if the content wasn't parsed.
+							if(!$match->is_empty() && !is_callable($match->callback()) && $match->parse_content())
+							{
+								// Alright, go ahead and add this tag to the opened list.
+								$opened_tags[] = array(
+																	 'match' => $match,
+																	 'replacements' => $replacements,
+																	 'pos' => $pos,
+																 );
+								$opened_count++;
+							}
+							else
+							{
+								// Looks like we'll deal with the closing tag right now.
+								$message .= str_ireplace(array_keys($replacements), array_values($replacements), $match->after());
+
+								// Move the current position to the closing tag.
+								$pos = $struct[$pos]->closingAt();
+							}
+
+							// We handled the tag, so go ahead and move along.
+							$tag_handled = true;
+
+							break;
+						}
+
+						// Move to the next item... Possibly. If not, then the tag will
+						// simply be added as text below.
+						if(!empty($tag_handled))
+						{
+							$pos++;
+
+							continue;
+						}
 					}
 
-					// TODO: Make its closing tag ignored.
+					// If we got to this point, this means that the tag has no matches
+					// so we will want to mark its closing tag as ignored.
+					$struct[$pos]->setIgnore(true);
+					$struct[$struct[$pos]->closingAt()]->setIgnore(true);
 				}
 				else
 				{
 					// Looks like it is a closing tag. That's pretty easy to deal with
 					// unlike the opening part.
+					$popped = array_pop($opened_tags);
+					$opened_count--;
+
+					if($popped !== null && $popped['match']->name() == $struct[$pos]->getTag())
+					{
+						$message .= str_ireplace(array_keys($replacements), array_values($replacements), $popped['match']->after());
+
+						// Got it!
+						$pos++;
+
+						continue;
+					}
+					else
+					{
+						die('Fatal error');
+					}
 				}
 			}
 
@@ -1609,7 +1761,7 @@ class SpeedyBBC
 			$pos++;
 		}
 
-    echo '<pre>'; print_r($struct); echo '</pre>';
+    return $message;
   }
 
 	/*

@@ -93,6 +93,10 @@ class SpeedyBBC
 										 'names' => array(),
 										 'empty' => array(),
 										 'tags' => array(),
+										 'constraints' => array(
+																				'parents' => array(),
+																				'children' => array(),
+																			),
 										 'valid' => true,
 									 );
 
@@ -582,6 +586,18 @@ class SpeedyBBC
 			}
 		}
 
+		// All tags with the same name will have the same parent and child
+		// constraints.
+		if(count($tag->required_parents()) > 0)
+		{
+			$this->index['constraints']['parents'][$tag->name()] = array_merge($tag->required_parents(), isset($this->index['constraints']['parents'][$tag->name()]) ? $this->index['constraints']['parents'][$tag->name()] : array());
+		}
+
+		if(count($tag->required_children()) > 0)
+		{
+			$this->index['constraints']['children'][$tag->name()] = array_merge($tag->required_children(), isset($this->index['constraints']['children'][$tag->name()]) ? $this->index['constraints']['children'][$tag->name()] : array());
+		}
+
 		// Since something was added the basic, value and attribute indexes are
 		// no longer valid!
 		$this->index['valid'] = false;
@@ -692,6 +708,9 @@ class SpeedyBBC
 					{
 						// No point on keeping the name in the index, then.
 						unset($this->index['names'][$defined->name()]);
+
+						// Along with removing all constraints, as well.
+						unset($this->index['constraints']['parents'], $this->index['constraints']['children']);
 					}
 
 					// An empty? An extra step, then.
@@ -721,6 +740,9 @@ class SpeedyBBC
 					{
 						// No point on keeping the name in the index, then.
 						unset($this->index['names'][$defined->name()]);
+
+						// Along with removing all constraints, as well.
+						unset($this->index['constraints']['parents'], $this->index['constraints']['children']);
 					}
 
 					// An empty? An extra step, then.
@@ -1007,7 +1029,7 @@ class SpeedyBBC
 
 		// The to_struct method will turn the message into an array of Nodes.
 		// That will then be used to interpret the message into HTML.
-		$struct = $this->to_struct($message);
+		$struct_data = $this->to_struct($message);
 
 		// Is the tag index invalid? Then fix it!
 		if(!$this->index['valid'])
@@ -1017,7 +1039,7 @@ class SpeedyBBC
 
 		// Now we need to interpret that structure into something useful, like
 		// actually use the defined BBCode tags, ya know?
-		$message = $this->interpret_struct($struct);
+		$message = $this->interpret_struct($struct_data[0], $struct_data[1]);
 
 		// Do we want to cache the message?
 		if($this->cachedir() !== null)
@@ -1027,7 +1049,7 @@ class SpeedyBBC
 			$fp = fopen($this->cachedir(). '/'. $message_id. '.bbc-cache.php', 'w');
 			flock($fp, LOCK_EX);
 
-			fwrite($fp, '<?php if(!defined(\'INBBCODECLASS\')) { die; } $message_cache = '. var_export($message). ';');
+			fwrite($fp, '<?php if(!defined(\'INBBCODECLASS\')) { die; } $message_cache = '. var_export($message). '; ?>');
 
 			flock($fp, LOCK_UN);
 			fclose($fp);
@@ -1053,7 +1075,7 @@ class SpeedyBBC
 		// Initialize a few useful things.
 		// Such as the current position within the string.
 		$cur_pos = 0;
-		
+
 		// The index within $struct that contains the last text index, this way
 		// we can append anything to it if we have to (we don't want one text
 		// node after another).
@@ -1061,10 +1083,15 @@ class SpeedyBBC
 		$length = $this->strlen($message);
 		$prev_pos = 0;
 		$struct = array();
-		
+
 		// We also don't want to recalculate the size of $struct over and over
 		// again.
 		$struct_length = 0;
+
+		// The current level.
+		$current_level = 0;
+		$opened_tags = array();
+		$opened_count = 0;
 
 		// Let's look for a possible tag.
 		while(($pos = $this->strpos($message, '[', $cur_pos)) !== false && $pos + 1 < $length && $this->substr($message, $pos + 1, 1) != ' ')
@@ -1107,14 +1134,14 @@ class SpeedyBBC
 				$saved = false;
 				if($prev_pos != $last_pos)
 				{
-					$node = new TextNode($this->substr($message, $prev_pos, $last_pos - $prev_pos));
+					$node = new TextNode($this->substr($message, $prev_pos, $last_pos - $prev_pos), $current_level);
 					$struct[$struct_length++] = $node;
 					$last_text_index = $struct_length - 1;
 					$saved = true;
 				}
 
 				// Now for the tag itself.
-				$node = new TagNode($this->substr($message, $last_pos, $pos - $last_pos + 1), $this->substr($message, $last_pos + 1, 1) == '/');
+				$node = new TagNode($this->substr($message, $last_pos, $pos - $last_pos + 1), $this->substr($message, $last_pos + 1, 1) == '/', 0, $this);
 
 				// Woah there, horsey! Do we even have a tag by that name?
 				if(isset($this->index['names'][$node->getTag()]))
@@ -1122,6 +1149,113 @@ class SpeedyBBC
 					// Yup, we do.
 					$struct[$struct_length++] = $node;
 					$last_text_index = -1;
+
+					// Maybe this tag is being opened?
+					if(!$node->is_closing())
+					{
+						// Set the tag nodes current level, along with adding it to the
+						// list of opened tags.
+						$node->setLevel($current_level);
+
+						// Let's figure out the previous tag node, shall we?
+						if($struct_length - 2 >= 0)
+						{
+							if($struct[$struct_length - 2]->type() == 'tag' || ($struct[$struct_length - 2]->type() == 'text' && $this->strlen(trim($struct[$struct_length - 2]->text())) == 0 && $struct_length - 3 >= 0 && $struct[$struct_length - 3] == 'tag'))
+							{
+								// Setting the previous index will make this a tiny bit
+								// easier.
+								$prev_index = $struct[$struct_length - 2]->type() == 'tag' ? $struct_length - 2 : $struct_length - 3;
+
+								// Go to the previous node and set the current node as its
+								// next node.
+								$struct[$prev_index]->nextNode($node);
+
+								// Now set this nodes previous node as the one located at
+								// $prev_index.
+								$node->prevNode($struct[$prev_index]);
+							}
+						}
+
+						// Before we add this to the list of opened tags, we will check
+						// whether it is an empty tag, because if it is, it doesn't get
+						// opened, so it won't need to be closed ;-)
+						if(!$this->tag_is_empty($node->getTag()))
+						{
+							$opened_tags[$opened_count++] = array(
+																								'tag' => $node->getTag(),
+																								'level' => $current_level++,
+																								'pos' => $struct_length - 1,
+																							);
+						}
+					}
+					// Nope, it is being closed, and we have a bit of work to do!
+					else
+					{
+						// First we need to see if this tag was ever opened.
+						$stop = $opened_count;
+						for($index = $opened_count - 1; $index >= 0; $index--)
+						{
+							if($opened_tags[$index]['tag'] == $node->getTag())
+							{
+								// It looks like the tag was opened, at some point.
+								$stop = $index;
+
+								break;
+							}
+						}
+
+						// Did we find the opening tag?
+						if($stop < $opened_count)
+						{
+							// We may need to move the current node back so we can insert
+							// any tags that need closing.
+							$current = $opened_count - 1;
+
+							// We will want to overwrite the current node (which will be
+							// added back after the loop).
+							$struct_length = $struct_length - 1;
+
+							while($current > $stop)
+							{
+								// Take off the last tag...
+								$opened_tag = $opened_tags[$current];
+								unset($opened_tags[$current]);
+
+								// Also subtract one from the total opened tag count.
+								$opened_count--;
+
+								// Add the closing tag to the structure.
+								$struct[$struct_length++] = new TagNode('[/'. $opened_tag['tag']. ']', true, $opened_tag['level']);
+
+								// Let's tell the opening tag where the ending tag is
+								// located, which will make some things quite a bit faster
+								// later.
+								$struct[$opened_tag['pos']]->setClosingAt($struct_length - 1);
+
+								// Move to the next.
+								$current--;
+							}
+
+							// Now add the current tag we were supposed to be dealing with
+							// back to $struct.
+							$struct[$struct_length++] = $node;
+
+							// Set a couple important things.
+							$node->setLevel($opened_tags[$opened_count - 1]['level']);
+							$struct[$opened_tags[$opened_count - 1]['pos']]->setClosingAt($struct_length - 1);
+
+							// Now remove it from the list of opened tags.
+							unset($opened_tags[--$opened_count]);
+
+							// Now set the proper level.
+							$current_level = $node->level() - 1;
+						}
+						else
+						{
+							// We will just ignore this tag, then.
+							$node->setIgnore(true);
+						}
+					}
 
 					// Now, everything has been handled up to this point.
 					$prev_pos = $pos + 1;
@@ -1138,7 +1272,7 @@ class SpeedyBBC
 					// Otherwise we will need to create one.
 					else
 					{
-						$struct[$struct_length++] = new TextNode($node->text());
+						$struct[$struct_length++] = new TextNode($node->text(), $current_level);
 						$last_text_index = $struct_length - 1;
 					}
 
@@ -1154,12 +1288,38 @@ class SpeedyBBC
 		if($prev_pos < $length)
 		{
 			// Yup, and we don't want to leave it out!
-			$node = new TextNode($this->substr($message, $prev_pos));
+			$node = new TextNode($this->substr($message, $prev_pos), $current_level);
 			$struct[$struct_length++] = $node;
 		}
 
-		// And here you go. I did my job...
-		return $struct;
+		// Were there any tags that weren't closed by the end of the message?
+		// That's fine, we can fix that.
+		if($opened_count > 0)
+		{
+			while(--$opened_count >= 0)
+			{
+				$struct[$struct_length++] = new TagNode('[/'. $opened_tags[$opened_count]['tag']. ']', true, $opened_tags[$opened_count]['level']);
+				$struct[$opened_tags[$opened_count]['pos']]->setClosingAt($struct_length - 1);
+			}
+		}
+
+		$start_time = microtime(true);
+		for($index = 0; $index < $struct_length; $index++)
+		{
+			if($struct[$index]->type() == 'tag')
+			{
+				$struct[$index]->checkConstraints();
+
+				if($struct[$index]->ignore())
+				{
+					$struct[$struct[$index]->closingAt()]->setIgnore(true);
+				}
+			}
+		}
+
+		// And here you go. I did my job... We will send along the structure
+		// length as well. No need to have the other method recalculate it.
+		return array($struct, $struct_length);
 	}
 
 	/*
@@ -1285,10 +1445,170 @@ class SpeedyBBC
 		}
 	}
 
-  private function interpret_struct($struct)
-  {
+	/*
+		Method: required_parents
 
-    
+		Retrieves the required parent tags for the specified tag name.
+
+		Parameters:
+			string $tag_name - The name of the tag.
+
+		Returns:
+			array - Returns an array containing the names of the required parent
+							tags.
+	*/
+	public function required_parents($tag_name)
+	{
+		return isset($this->index['constraints']['parents'][$tag_name]) ? $this->index['constraints']['parents'][$tag_name] : array();
+	}
+
+	/*
+		Method: required_children
+
+		Retrieves the required child tags for the specified tag name.
+
+		Parameters:
+			string $tag_name - The name of the tag.
+
+		Returns:
+			array - Returns an array containing the names of the required child
+							tags.
+	*/
+	public function required_children($tag_name)
+	{
+		return isset($this->index['constraints']['children'][$tag_name]) ? $this->index['constraints']['children'][$tag_name] : array();
+	}
+
+	private function interpret_struct($struct, $struct_length)
+	{
+		// We will need a few variables to keep track of things, such as a
+		// string to store the generated message.
+		$message = '';
+
+		// Then of course something to keep track of our current location as we
+		// traverse the parsed message.
+		$pos = 0;
+
+		// And nope, we do not need to keep track of the opened tags, as the
+		// lexer took care of that for us :-).
+		while($pos < $struct_length)
+		{
+			// Do we need to take care of this tag? Make sure it isn't supposed to
+			// be ignored -- for whatever reason, I don't care ;-).
+			if($struct[$pos]->type() == 'tag' && !$struct[$pos]->ignore())
+			{
+				// Check to see whether it is an opening tag...
+				if(!$struct[$pos]->is_closing())
+				{
+					// It is time to look for all the tags which could be possible
+					// matches for the current tag. Luckily we have another method
+					// which will handle that.
+					$found = false;
+					$matches = $this->find_tags($struct[$pos]);
+
+					// So, did we find anything?
+					if(count($matches) > 0)
+					{
+						// Let's get to work, and what work it will be :-/.
+						$tag_content = null;
+						foreach($matches as $match)
+						{
+							$data = null;
+
+							// Let's see if there is any data which needs to be validated.
+							// We need to handle each tag differently, depending upon the
+							// type. First off: value ([name=...])!
+							if($struct[$pos]->getTagType() == 'value')
+							{
+								// Fetch the value of the tag so we can get started.
+								$data = $struct[$pos]->getValue();
+
+								// Now fetch the options for this match.
+								$options = $match->value();
+								$regex = isset($options['regex']) && $this->strlen($options['regex']) > 0 ? $options['regex'] : false;
+								$callback = isset($options['callback']) && is_callable($options['callback']) ? $options['callback'] : false;
+
+								// Does the tag have any regular expression specified?
+								if($regex !== false && @preg_match($regex, $data) == 0)
+								{
+									// Looks like this match is, erm, no match. So our search
+									// continues!
+									continue;
+								}
+
+								if($callback !== false && ($data = call_user_func($callback, $data)) === false)
+								{
+									// Hmm, I guess the callback wasn't very happy with the
+									// users selected input. Oh well, better luck next match?
+									continue;
+								}
+							}
+							// Now to handle an attribute typed tag, such as:
+							// [name attr=val].
+							elseif($struct[$pos]->getTagType() == 'attribute')
+							{
+								// Fetch all the set attributes.
+								$data = $struct[$pos]->getAttributes();
+
+								// Keep track of whether an error occurred.
+								$attr_error = false;
+								foreach($match->attributes() as $attr_name => $options)
+								{
+									// If this tag is optional, we may need to skip this if
+									// the attribute isn't present.
+									if($options['optional'] === true && !array_key_exists($attr_name, $data))
+									{
+										continue;
+									}
+
+									// Regular expression, perhaps?
+									if(isset($options['regex']) && $this->strlen($options['regex']) > 0 && @preg_match($options['regex'], $data[$attr_name]) == 0)
+									{
+										// Well, that's no good.
+										$attr_error = true;
+
+										continue;
+									}
+
+									if(isset($options['callback']) && is_callable($options['callback']) && ($data[$attr_name] = call_user_func($options['callback'], $data[$attr_name])) === false)
+									{
+										// This isn't any good, either.
+										$attr_error = true;
+
+										continue;
+									}
+								}
+
+								// Did we encounter an error?
+								if($attr_error === true)
+								{
+									continue;
+								}
+							}
+
+							// Thankfully, parent/child constraints have already been
+							// checked! So we can get right to it!
+						} // END: FOREACH
+					}
+
+					// TODO: Make its closing tag ignored.
+				}
+				else
+				{
+					// Looks like it is a closing tag. That's pretty easy to deal with
+					// unlike the opening part.
+				}
+			}
+
+			// Add the text to the message. This could be actual text, or it could
+			// be a tag which was not defined/valid... Either way, whole really
+			// cares? I know I don't! :-P.
+			$message .= $this->format_text($struct[$pos]->text());
+
+			// Move along, please.
+			$pos++;
+		}
+
     echo '<pre>'; print_r($struct); echo '</pre>';
   }
 
@@ -2829,7 +3149,7 @@ class Node
 	// Variable: type
 	// The type of node being contained within this Node instance.
 	protected $type;
-	
+
 	// Variable: level
 	// Contains the level at which the node resides within the parsed message.
 	protected $level;
@@ -2872,15 +3192,15 @@ class Node
 	{
 		return $this->type;
 	}
-	
+
 	/*
     Method: isText
-    
+
     Returns whether the node is a text node.
-    
-    Parameters: 
+
+    Parameters:
       none
-     
+
      Returns:
       bool - Returns true if the node is a text node.
   */
@@ -2888,15 +3208,15 @@ class Node
 	{
 		return $this->type() == 'text';
 	}
-	
+
 	/*
 		Method: isTag
-		
+
 		Returns whether the node is a tag node.
-		
+
 		Parameters:
 			none
-		
+
 		Returns:
 			bool - Returns true if the node is a tag node.
 	*/
@@ -2904,7 +3224,7 @@ class Node
 	{
 		return $this->type() == 'tag';
 	}
-	
+
 	/*
 		Method: appendText
 
@@ -2952,15 +3272,15 @@ class Node
 	{
 		$this->type = $type;
 	}
-	
+
 	/*
 		Method: level
-		
+
 		Returns the level at which the node resides within the parsed message.
 
 		Parameters:
 			none
-		
+
 		Returns:
 			int - Returns the level at which the node resides.
 	*/
@@ -2968,15 +3288,15 @@ class Node
 	{
 		return $this->level;
 	}
-	
+
 	/*
 		Method: setLevel
-		
+
 		Sets the level at which the node resides within the parsed message.
-		
+
 		Parameters:
 			int $level - The level at which to set the node at.
-		
+
 		Returns:
 			void - Nothing is returned by this method.
 	*/
@@ -2986,10 +3306,10 @@ class Node
 		{
 			return;
 		}
-		
+
 		$this->level = (int)$level;
 	}
-	
+
 	/*
 		Method: strlen
 
@@ -3050,9 +3370,10 @@ class TextNode extends Node
 		Parameters:
 			string $text - The text.
 	*/
-	public function __construct($text = '')
+	public function __construct($text = '', $level = 0)
 	{
 		$this->setText($text);
+		$this->setLevel($level);
 		$this->type = 'text';
 	}
 }
@@ -3090,6 +3411,29 @@ class TagNode extends Node
 	// interpreter, which is likely due to the tag never being opened.
 	protected $ignore;
 
+	// Variable: closingAt
+	// Indicates the location within the parsed structure that contains the
+	// closing tag for this opening tag, if it is an opening tag, of course.
+	protected $closingAt;
+
+	// Variable: prevNode
+	// This contains the previous tag node, but null if there is no previous
+	// node, or if the previous item within the parsed structure was not an
+	// empty (whitespace, line breaks, etc.) text node.
+	protected $prevNode;
+
+	// Variable: nextNode
+	// This contains the next tag node, but null if there is no next node, or
+	// if the next item within the parsed structure was not an empty
+	// (whitespace, line breaks, etc.) text node.
+	protected $nextNode;
+
+	// Variable: required
+	// An array containing the require parent and child tags.
+	protected $required;
+
+	protected $checked;
+
 	/*
 		Constructor: __construct
 
@@ -3098,7 +3442,7 @@ class TagNode extends Node
 										 square brackets.
 			bool $is_closing - Whether the tag is closing, i.e. [/b]
 	*/
-	public function __construct($text = '', $is_closing = false)
+	public function __construct($text = '', $is_closing = false, $level = 0, $speedy = null)
 	{
 		// All of this will be fetched and stored once the proper methods are
 		// called. We won't call these now in case this tag is never encountered
@@ -3111,6 +3455,15 @@ class TagNode extends Node
 		$this->type = 'tag';
 		$this->setIsClosing($is_closing);
 		$this->ignore = false;
+		$this->closingAt = false;
+		$this->prevNode = null;
+		$this->nextNode = null;
+		$this->required = array(
+												'parents' => is_object($speedy) ? $speedy->required_parents($this->getTag()) : array(),
+												'children' => is_object($speedy) ? $speedy->required_children($this->getTag()) : array(),
+											);
+		$this->checked = false;
+		$this->setLevel($level);
 	}
 
 	/*
@@ -3500,7 +3853,177 @@ class TagNode extends Node
 	*/
 	public function setIgnore($ignore)
 	{
+		$prev_ignore = $this->ignore;
 		$this->ignore = !empty($ignore);
+
+		// Do we need to signal to any other nodes that this one has been
+		// ignored?
+		if($this->ignore && $prev_ignore !== true)
+		{
+			if($this->prevNode !== null)
+			{
+				$this->prevNode->checkConstraints();
+
+				// If the previous node depends on the next node (which would be the
+				// instance we're in now), then it cannot possibly be valid.
+				if($this->prevNode->dependsOnNext())
+				{
+					$this->prevNode->setIgnore(true);
+				}
+			}
+
+			if($this->nextNode !== null)
+			{
+				$this->nextNode->checkConstraints();
+
+				if($this->nextNode->dependsOnPrev())
+				{
+					$this->nextNode->setIgnore(true);
+				}
+			}
+		}
+	}
+
+	/*
+		Method: closingAt
+
+		Returns the location within the parsed structure containing this tags
+		closing tag, if it is an opening tag.
+
+		Parameters:
+			none
+
+		Returns:
+			mixed - Returns an integer containing the index of the closing tag or
+							false if this tag has no closing tag (i.e. this is a closing
+							tag).
+	*/
+	public function closingAt()
+	{
+		return $this->closingAt;
+	}
+
+	/*
+		Method: setClosingAt
+
+		Sets the index of the closing tag for this tag, if it is an opening tag.
+
+		Parameters:
+			int $index - The index of closing tag in the structure.
+
+		Returns:
+			bool - Returns true on success, or false on failure, which would mean
+						 that this node is a closing tag.
+	*/
+	public function setClosingAt($index)
+	{
+		if($this->is_closing() || (int)$index < 0)
+		{
+			return false;
+		}
+
+		// Just set it, and that'll be all!
+		$this->closingAt = (int)$index;
+
+		return true;
+	}
+
+	/*
+		Method: prevNode
+
+		Gets or sets the previous tag node in relation to this node.
+
+		Parameters:
+			object $prevNode - The previous tag node.
+
+		Returns:
+			mixed - Returns the previous tag node if there is one, but null if
+							there isn't any. If $prevNode is supplied, nothing is returned
+							by this method.
+	*/
+	public function prevNode($prevNode = null)
+	{
+		if($prevNode !== null && is_object($prevNode))
+		{
+			$this->prevNode = $prevNode;
+		}
+		else
+		{
+			return $this->prevNode;
+		}
+	}
+
+	/*
+		Method: nextNode
+
+		Gets or sets the next tag node in relation to this node.
+
+		Parameters:
+			object $nextNode - The next tag node.
+
+		Returns:
+			mixed - Returns the next tag node if there is one, but null if there
+							isn't any. If $nextNode is supplied, nothing is returned by
+							this method.
+	*/
+	public function nextNode($nextNode = null)
+	{
+		if($nextNode !== null && is_object($nextNode))
+		{
+			$this->nextNode = $nextNode;
+		}
+		else
+		{
+			return $this->nextNode;
+		}
+	}
+
+	public function checkConstraints()
+	{
+		// If this has been checked already, then we don't need to do it again.
+		if($this->checked || $this->is_closing())
+		{
+			return;
+		}
+
+		// We will check them right now!
+		$this->checked = true;
+
+		// Any required parents or children?
+		if(count($this->required['parents']) > 0)
+		{
+			// Yup, so let's take a look.
+			if($this->prevNode === null || !in_array($this->prevNode->getTag(), $this->required['parents']))
+			{
+				// Uh oh! Looks like this won't work. So we will ignore this tag.
+				// When we mark this tag as ignored, it will signal that to any
+				// respective tags, which they will in turn do the same.
+				$this->setIgnore(true);
+
+				// There will be no point in checking child constraints, if any.
+				return;
+			}
+		}
+
+		if(count($this->required['children']) > 0)
+		{
+			// Check the next node.
+			if($this->nextNode === null || !in_array($this->nextNode->getTag(), $this->required['children']))
+			{
+				// ... and ignore!
+				$this->setIgnore(true);
+			}
+		}
+	}
+
+	public function dependsOnNext()
+	{
+		return count($this->required['children']) > 0;
+	}
+
+	public function dependsOnPrev()
+	{
+		return count($this->required['parents']) > 0;
 	}
 }
 ?>

@@ -1157,23 +1157,18 @@ class SpeedyBBC
 						// list of opened tags.
 						$node->setLevel($current_level);
 
-						// Let's figure out the previous tag node, shall we?
-						if($struct_length - 2 >= 0)
+						// We need to set the parent node of $node, along with adding
+						// $node to the children of the parent.
+						// This is pretty straightforward, as it is the most recently
+						// opened tag.
+						$node->parentNode($opened_count > 0 ? $opened_tags[$opened_count - 1]['tag'] : null);
+
+						// If there was no parent node, then it can't really be a child,
+						// can it?
+						if($node->parentNode() !== null)
 						{
-							if($struct[$struct_length - 2]->type() == 'tag' || ($struct[$struct_length - 2]->type() == 'text' && $this->strlen(trim($struct[$struct_length - 2]->text())) == 0 && $struct_length - 3 >= 0 && $struct[$struct_length - 3] == 'tag'))
-							{
-								// Setting the previous index will make this a tiny bit
-								// easier.
-								$prev_index = $struct[$struct_length - 2]->type() == 'tag' ? $struct_length - 2 : $struct_length - 3;
-
-								// Go to the previous node and set the current node as its
-								// next node.
-								$struct[$prev_index]->nextNode($node);
-
-								// Now set this nodes previous node as the one located at
-								// $prev_index.
-								$node->prevNode($struct[$prev_index]);
-							}
+							// This will add this node along with its other children.
+							$node->parentNode()->childNodes($node);
 						}
 
 						// Before we add this to the list of opened tags, we will check
@@ -1227,6 +1222,8 @@ class SpeedyBBC
 								// Add the closing tag to the structure.
 								$struct[$struct_length++] = new TagNode('[/'. $opened_tag['tag']. ']', true, $opened_tag['level']);
 
+								// !!! Do closing tags need parents?
+
 								// Let's tell the opening tag where the ending tag is
 								// located, which will make some things quite a bit faster
 								// later.
@@ -1243,6 +1240,8 @@ class SpeedyBBC
 							// Set a couple important things.
 							$node->setLevel($opened_tags[$opened_count - 1]['level']);
 							$struct[$opened_tags[$opened_count - 1]['pos']]->setClosingAt($struct_length - 1);
+
+							// !!! Do closing tags need parents?
 
 							// Now remove it from the list of opened tags.
 							unset($opened_tags[--$opened_count]);
@@ -1274,6 +1273,12 @@ class SpeedyBBC
 					{
 						$struct[$struct_length++] = new TextNode($node->text(), $current_level);
 						$last_text_index = $struct_length - 1;
+
+						// Text nodes have parents, but they don't have any children.
+						if($opened_count > 0)
+						{
+							$struct[$struct_length - 1]->parentNode($opened_tags[$opened_count - 1]['tag']);
+						}
 					}
 
 					$prev_pos = $pos + 1;
@@ -1697,15 +1702,18 @@ class SpeedyBBC
 																	 'replacements' => $replacements,
 																	 'pos' => $pos,
 																 );
-								$opened_count++;
 							}
 							else
 							{
 								// Looks like we'll deal with the closing tag right now.
 								$message .= str_ireplace(array_keys($replacements), array_values($replacements), $match->after());
 
-								// Move the current position to the closing tag.
-								$pos = $struct[$pos]->closingAt();
+								// Move the current position to the closing tag... Unless it
+								// is an empty tag, in which case it has no closing tag.
+								if(!$match->is_empty())
+								{
+									$pos = $struct[$pos]->closingAt();
+								}
 							}
 
 							// We handled the tag, so go ahead and move along.
@@ -1746,8 +1754,8 @@ class SpeedyBBC
 						continue;
 					}
 					else
-					{
-						die('Fatal error');
+					{var_dump($popped);
+						echo('Fatal error');
 					}
 				}
 			}
@@ -1763,489 +1771,6 @@ class SpeedyBBC
 
     return $message;
   }
-
-	/*
-		Method: interpret_struct
-
-		A private method which is used to interpret the generated structure from
-		a message.
-
-		Parameters:
-			array $struct - The structure to interpret.
-
-		Returns:
-			string - Returns the interpreted message.
-	*/
-	private function interpret_struct_old($struct)
-	{
-		// We will need a few variables to keep track of things. Like the
-		// message which has been generated so far.
-		$message = '';
-
-		// The current position in the parsed structure, along with how big it
-		// is (because recounting each time is slow).
-		$pos = 0;
-		$length = count($struct);
-
-		// Last, but not least, which tags are opened? Since we will be messing
-		// with this a lot, we should manually keep track of how many are opened
-		// for performance reasons.
-		$opened_tags = array();
-		$opened_count = 0;
-		while($pos < $length)
-		{
-			// Is this a tag?
-			if($struct[$pos]->type() == 'tag' && !$struct[$pos]->ignore() && !$struct[$pos]->is_closing())
-			{
-				// Looks like we have some work to do.
-				// Well, if we have a tag which is defined.
-				$tag_name = $struct[$pos]->getTag();
-				$tag_index = substr($tag_name, 0, 1);
-
-				// This is a quick way to see if it exists.
-				if(isset($this->tags[$tag_index]))
-				{
-					// We will want to find all the matches at once in case one
-					// doesn't do the job... We won't want to keep iterating through
-					// the tag array.
-					$found = false;
-					$matches = $this->find_tags($struct[$pos]);
-
-					// So, did we find it?
-					if(count($matches) > 0)
-					{
-						// There will be no need to fetch the content of the tag over
-						// and over again.
-						$tag_content = null;
-						$base_tags = null;
-						$end_pos = null;
-						$tag_handled = false;
-						foreach($matches as $match)
-						{
-							// Sweet...
-							$data = null;
-
-							// Let's see if there is any data which needs validating.
-							// We need to handle each tag differently depending upon the
-							// type. First off: value ([name=...])!
-							if($struct[$pos]->getTagType() == 'value')
-							{
-								// Set the value, so we can do what we need to do...
-								$data = $struct[$pos]->getValue();
-
-								// Let's get the information we need.
-								$options = $match->value();
-								$regex = isset($options['regex']) ? $options['regex'] : false;
-								$callback = isset($options['callback']) ? $options['callback'] : false;
-
-								// A regular expression... Perhaps?
-								if($this->strlen($regex) > 0)
-								{
-									if(@preg_match($regex, $data) == 0)
-									{
-										// Uh oh, this is no good.
-										continue;
-									}
-								}
-
-								// Was a valid callback supplied?
-								if(is_callable($callback))
-								{
-									// Let's see, is the value okay? Did you want to change
-									// it by returning a new value?
-									if(($data = call_user_func($callback, $data)) === false)
-									{
-										// Looks like its not okay, oh well.
-										continue;
-									}
-								}
-							}
-							// Now to handle an attribute-type tag, like [name attr=val].
-							elseif($struct[$pos]->getTagType() == 'attribute')
-							{
-								// The TagNode object can get the attributes for us.
-								$data = $struct[$pos]->getAttributes();
-
-								// Keep track of whether or not an error occurred.
-								$attr_error = false;
-								foreach($match->attributes() as $attr_name => $options)
-								{
-									// A regular expression... Perhaps?
-									if(isset($options['regex']) && $this->strlen($options['regex']) > 0)
-									{
-										if(@preg_match($options['regex'], $data[$attr_name]) == 0)
-										{
-											// Uh oh, this is no good.
-											$attr_error = true;
-
-											continue;
-										}
-									}
-
-									if(isset($options['callback']) && is_callable($options['callback']))
-									{
-										// Let's see, is the value okay? Did you want to change
-										// it by returning a new value?
-										if(($data[$attr_name] = call_user_func($options['callback'], $data[$attr_name])) === false)
-										{
-											// Looks like its not okay, oh well.
-											$attr_error = true;
-
-											continue;
-										}
-									}
-								}
-
-								// Did we encounter an issue?
-								if(!empty($attr_error))
-								{
-									continue;
-								}
-							}
-
-							// Well, do they want the content of the tag? There will be a
-							// valid callback, then... The tag may not want the content of
-							// the tag, but it also may not want the contents to be parsed,
-							// which means we need to get the content, still.
-							if((is_callable($match->callback()) || $match->parse_content() === false || count($match->required_children()) > 0) && $tag_content === null)
-							{
-								$start_pos = $pos;
-								$opened = array();
-								$index = 0;
-								$level = 0;
-								$base_tags = array();
-								while($pos < $length)
-								{
-									if($struct[$pos]->type() == 'tag' && !$struct[$pos]->is_closing())
-									{
-										// We want to save all the tag names and their levels.
-										$base_tags[$level][] = $struct[$pos]->getTag();
-
-										// We only need to change this if it isn't an empty tag.
-										if(!$this->tag_is_empty($struct[$pos]->getTag()))
-										{
-											$opened[$index++] = $struct[$pos]->getTag();
-											$level++;
-										}
-									}
-									elseif($struct[$pos]->type() == 'tag')
-									{
-										// Hopefully this will be easy...
-										if($opened[$index - 1] == $struct[$pos]->getTag())
-										{
-											// POP! goes the weasel!
-											array_pop($opened);
-
-											// That's one less.
-											$index--;
-											$level--;
-										}
-										// Make sure the tag is in there somewhere...
-										elseif(in_array($struct[$pos]->getTag(), $opened))
-										{
-											// Just gotta keep poppin' them off until we find it.
-											$popped = null;
-											while($struct[$pos]->getTag() != ($popped = array_pop($opened)))
-											{
-												$index--;
-												$level--;
-											}
-
-											if($popped !== null && $popped == $struct[$pos]->getTag())
-											{
-												$index--;
-												$level--;
-											}
-										}
-									}
-									// We also need to consider the possibility of text...
-									else
-									{
-										$base_tags[$level][] = 'text';
-									}
-
-									// Did we closing everything?
-									if($index < 1)
-									{
-										break;
-									}
-
-									// Let's move along...
-									$pos++;
-								}
-
-								// Let's make sure that worked...
-								if($index < 1)
-								{
-									// Let's get the tags content.
-									for($i = $start_pos + 1; $i < $pos; $i++)
-									{
-										$tag_content[] = $struct[$i];
-									}
-
-									$end_pos = $pos;
-									$pos = $start_pos;
-								}
-								else
-								{
-									// Let's move along...
-									$pos = $start_pos;
-
-									continue;
-								}
-							}
-
-							// Alright, let's check again, did they want the content
-							// parsed or not?
-							$tag_handled_content = '';
-							if(is_callable($match->callback()) || $match->parse_content() === false)
-							{
-								// If they want it parsed, we will call on the interpret
-								// structure method we're in now... No need to do it all
-								// again!
-								if($match->parse_content())
-								{
-									$tag_handled_content = $this->interpret_struct($tag_content);
-								}
-								// If they don't want it parsed, then we will just collect
-								// all the text values together.
-								elseif(is_array($tag_content))
-								{
-									foreach($tag_content as $cn)
-									{
-										$tag_handled_content .= $cn->text();
-									}
-								}
-							}
-
-							// Alright, is this a block level tag?
-							if($match->block_level())
-							{
-								// Looks like we need to close some tags.
-								$popped = null;
-								while(($popped = array_pop($opened_tags)) !== null && !$popped->block_level())
-								{
-									$message .= str_ireplace(array_keys($popped->replacements()), array_values($popped->replacements()), $popped->after());
-									$opened_count--;
-								}
-
-								if($popped !== null && $popped->block_level())
-								{
-									// We went slightly crazy, didn't we?
-									$opened_tags[] = $popped;
-								}
-							}
-
-							// Does a tag need to be opened for this one to be valid?
-							if(count($match->required_parents()) > 0)
-							{
-								if(($opened_count > 0 && !in_array($opened_tags[$opened_count - 1]->name(), $match->required_parents())) || $opened_count == 0)
-								{
-									// Sorry, but it there is a tag required to be opened
-									// first. Shoot!
-									continue;
-								}
-							}
-
-							// We just checked for required parents, how about children?
-							if(count($match->required_children()) > 0)
-							{
-								if(!defined('hahadone'))
-								{
-									echo '<pre>'; print_r($base_tags); echo '</pre>';
-									define('hahadone', 1);
-								}echo '~'. $match->name();
-								// Well, if there are no base tags, then there certainly
-								// aren't any children.
-								if(isset($base_tags[1]) && count($base_tags[1]) > 0)
-								{
-									// Make sure all the children which will appear
-									// immediately are allowed.
-									$disallowed_found = false;
-									foreach($base_tags[1] as $base_tname)
-									{
-										if(!in_array($base_tname, $match->required_children()))
-										{
-											// Looks like this tag isn't allowed.
-											$disallowed_found = true;
-
-											break;
-										}
-									}
-
-									// Did we find any tags which aren't allowed?
-									if($disallowed_found)
-									{
-										// Better luck next time?
-										continue;
-									}
-								}
-								else
-								{
-									// In that case, NEXT!
-									continue;
-								}
-							}
-
-							// Oh, did you want the contents of the tag? Alright.
-							$tag_returned_content = false;
-							if(is_callable($match->callback()) && ($tag_returned_content = call_user_func($match->callback(), $tag_handled_content, $data)) === false)
-							{
-								// That's not a good sign.
-								continue;
-							}
-
-							// There could be something in need of replacing.
-							$replacements = array();
-
-							// {value} gets replaced with the value.
-							if($struct[$pos]->getTagType() == 'value')
-							{
-								$replacements['{value}'] = $data;
-							}
-							// ... and all {attribute name}'s get replaced with their
-							// values as well.
-							elseif($struct[$pos]->getTagType() == 'attribute')
-							{
-								foreach($data as $attr_name => $value)
-								{
-									$replacements['{'. $attr_name. '}'] = $value;
-								}
-							}
-
-							// Maybe there is some content that needs replacing?
-							if($tag_returned_content !== false)
-							{
-								// We use [content] in case there is a content attribute,
-								// you never know!
-								$replacements['[content]'] = $tag_returned_content;
-							}
-
-							// Replace like the wind!
-							$message .= str_ireplace(array_keys($replacements), array_values($replacements), $match->before());
-
-							// Was there content which needed to be added?
-							if(is_callable($match->callback()) || !$match->parse_content())
-							{
-								// If the BBCode tag took the handled content then we want
-								// to use the returned content, otherwise the previously
-								// handled (handled being parsed or not parsed).
-								$message .= $tag_returned_content !== false ? $tag_returned_content : $tag_handled_content;
-							}
-
-							// Do we need to add this to the opened tags array? We won't
-							// need to if the tag is empty, if the BBCode tag returned
-							// content, or if the content wasn't parsed.
-							if(!$match->is_empty() && !is_callable($match->callback()) && $match->parse_content())
-							{
-								// There could be (but probably isn't) some things in the
-								// closing tag that need replacing, and since we don't want
-								// to do this all over again, we will store it here:
-								$match->set_replacements($replacements);
-
-								// Now save the opened tag and increment the opened count.
-								$opened_tags[] = $match;
-								$opened_count++;
-							}
-							else
-							{
-								// Um, nope!!! So replace "stuff" in the after tag and add
-								// it to the message.
-								$message .= str_ireplace(array_keys($replacements), array_values($replacements), $match->after());
-
-								// We may need to move the current position to after the
-								// content we possibly already handled.
-								if($end_pos !== null)
-								{
-									$pos = $end_pos;
-								}
-							}
-
-							// This tag was handled successfully! Awesomesauce!
-							$tag_handled = true;
-
-							break;
-						}
-
-						// Was the tag handled?
-						if(!empty($tag_handled))
-						{
-							// Yes, it was, so we can move along!
-							$pos++;
-
-							continue;
-						}
-					}
-				}
-			}
-			// Must mean this tag is a closing tag.
-			elseif($struct[$pos]->type() == 'tag' && !$struct[$pos]->ignore())
-			{
-				// Before we start closing a bunch of tags, why don't we see if this
-				// was even opened in the first place.
-				if($opened_count > 0)
-				{
-					// Let's keep track of whether this tag was opened, because it may
-					// not have been.
-					$is_opened = false;
-					for($index = $opened_count - 1; $index >= 0; $index--)
-					{
-						// We will compare the names to see if it was opened.
-						if($opened_tags[$index]->name() == $struct[$pos]->getTag())
-						{
-							// Yup, it was opened! We will save the index we found it at.
-							$is_opened = $index;
-
-							// Now, let's get out of here.
-							break;
-						}
-					}
-
-					// So, what did our search find?
-					if($is_opened !== false)
-					{
-						// Let's start at the end and work our way towards the final
-						// tag...
-						for($index = $opened_count - 1; $index >= $is_opened; $index--)
-						{
-							// We will just pop that sucker off!
-							$popped = array_pop($opened_tags);
-							$opened_count--;
-
-							// Now add the after content to the message.
-							$message .= str_ireplace(array_keys($popped->replacements()), array_values($popped->replacements()), $popped->after());
-						}
-
-						// This was handled...
-						$pos++;
-
-						continue;
-					}
-				}
-			}
-
-			// Add the text to the message. This could be actual text or it could
-			// be a tag which was not defined/valid... Either way, who cares? :-P
-			$message .= $this->format_text($struct[$pos]->text());
-
-			// Move along, ya hear?
-			$pos++;
-		}
-
-		// Was there still some stuff left opened? That's no good!
-		if(count($opened_tags) > 0)
-		{
-			while(($popped = array_pop($opened_tags)) !== null)
-			{
-				// We don't want to mess up your layout, so close the remaining tags
-				// along with replacing any "stuff."
-				$message .= str_ireplace(array_keys($popped->replacements()), array_values($popped->replacements()), $popped->after());
-			}
-		}
-
-		// We're done!
-		return $message;
-	}
 
 	/*
 		Method: format_text
@@ -3306,11 +2831,25 @@ class Node
 	// Contains the level at which the node resides within the parsed message.
 	protected $level;
 
+	// Variable: parentNode
+	// An object containing the parent node of the current node.
+	protected $parentNode;
+
+	// Variable: childNodes
+	// An array containing the child nodes of the current node.
+	protected $childNodes;
+
+	// Variable: childNodesLength
+	// An integer containing the total number of child nodes.
+	protected $childNodesLength;
+
 	public function __construct()
 	{
 		$this->text = null;
 		$this->type = null;
 		$this->level = null;
+		$this->parentNode = null;
+		$this->childNodes(false);
 	}
 
 	/*
@@ -3463,6 +3002,91 @@ class Node
 	}
 
 	/*
+		Method: parentNode
+
+		Gets or sets the parent node of the current node.
+
+		Parameters:
+			mixed $parentNode - Another node, which is the parent node of the
+													current node.
+
+		Returns:
+			mixed - Returns the parent node of the current node if $parentNode is
+							empty, but void otherwise.
+	*/
+	public function parentNode($parentNode = null)
+	{
+		if(is_object($parentNode) && is_a($parentNode, 'Node'))
+		{
+			$this->parentNode = $parentNode;
+		}
+		else
+		{
+			return $this->parentNode;
+		}
+	}
+
+	/*
+		Method: childNodes
+
+		Gets, sets, or adds child nodes of the current node.
+
+		Parameters:
+			mixed $childNode - Either an array of child nodes, or a child node to
+												 add along with the list of current child nodes.
+
+		Returns:
+			mixed - Returns an array of child nodes if $childNode is empty,
+							otherwise nothing is returned by this method.
+	*/
+	public function childNodes($childNode = null)
+	{
+		if($childNode === false)
+		{
+			$this->childNodes = array();
+			$this->childNodesLength = 0;
+		}
+		elseif(is_array($childNodes))
+		{
+			$this->childNodes(false);
+
+			foreach($childNodes as $childNode)
+			{
+				if(is_object($childNode))
+				{
+					$this->childNodes($childNode);
+				}
+			}
+		}
+		elseif(is_object($childNode) && is_a($childNode, 'Node'))
+		{
+			$this->childNodes[] = $childNode;
+			$this->childNodesLength++;
+		}
+		else
+		{
+			return $this->childNodes;
+		}
+	}
+
+	/*
+		Method: childNodesLength
+
+		Returns the total number of immediate children this node contains.
+
+		Parameters:
+			none
+
+		Returns:
+			int - Returns an integer containing the number of immediate children
+						this node contains.
+	*/
+	public function childNodesLength()
+	{
+		return $this->childNodesLength;
+	}
+
+	/*
 		Method: strlen
 
 		This is a protected method used to check the length of a string, which
@@ -3568,22 +3192,12 @@ class TagNode extends Node
 	// closing tag for this opening tag, if it is an opening tag, of course.
 	protected $closingAt;
 
-	// Variable: prevNode
-	// This contains the previous tag node, but null if there is no previous
-	// node, or if the previous item within the parsed structure was not an
-	// empty (whitespace, line breaks, etc.) text node.
-	protected $prevNode;
-
-	// Variable: nextNode
-	// This contains the next tag node, but null if there is no next node, or
-	// if the next item within the parsed structure was not an empty
-	// (whitespace, line breaks, etc.) text node.
-	protected $nextNode;
-
 	// Variable: required
 	// An array containing the require parent and child tags.
 	protected $required;
 
+	// Variable: checked
+	// A boolean value indicating whether the
 	protected $checked;
 
 	/*

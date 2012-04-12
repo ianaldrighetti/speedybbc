@@ -263,7 +263,7 @@ $test_cases = array(
 								array(
 									'name' => 'Wrong children',
 									'bbc' => '[table][tr]There is no td tag...[/tr][/table]',
-									'html' => '<table><tr></tr></table>There is no td tag...',
+									'html' => '[table][tr]There is no td tag...[/tr][/table]',
 								),
 							);
 
@@ -315,7 +315,7 @@ echo '<!DOCTYPE html>
 		<p>The following are the results of the BBCode test cases. <a href="#results">Jump to results</a>.</p>';
 
 @set_time_limit(5);
-require('speedybbc.class.php');
+require('speedybbc-redux.class.php');
 $bbc = new SpeedyBBC();
 $start_time = microtime(true);
 $total_tests = 0;

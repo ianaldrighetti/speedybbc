@@ -164,6 +164,11 @@ $test_cases = array(
 									'bbc' => '[img width=100 height=200]http://www.example.com/some-image.jpg[/img]',
 									'html' => '<img src="http://www.example.com/some-image.jpg" width="100" height="200" alt="" />',
 								),
+								array(
+									'name' => 'Image w/attributes (optional, only width)',
+									'bbc' => '[img width=650]http://www.example.com/some-image.jpg[/img]',
+									'html' => '<img src="http://www.example.com/some-image.jpg" width="650" alt="" />',
+								),
 								'Empty tags',
 								array(
 									'name' => 'Horizontal rule',
@@ -264,6 +269,12 @@ $test_cases = array(
 									'name' => 'Wrong children',
 									'bbc' => '[table][tr]There is no td tag...[/tr][/table]',
 									'html' => '[table][tr]There is no td tag...[/tr][/table]',
+								),
+								'Disallowed/Allowed Constraints',
+								array(
+									'name' => 'Disallowed children',
+									'bbc' => '[url=http://www.bing.com][url=http://www.bing.com]A link inside a link[/url]![/url]',
+									'html' => '<a href="http://www.bing.com" target="_blank">[url=http://www.bing.com]A link inside a link[/url]!</a>',
 								),
 							);
 

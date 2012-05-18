@@ -1243,5 +1243,65 @@ class SpeedyTagNode extends SpeedyNode
 	{
 		return $this->checked || $this->isClosing();
 	}
+
+	/*
+		Method: applyChildConstraints
+
+		Applies the supplied child constraints to the node's children. The array
+		passed is to contain an array of tags which are allowed (or disallowed)
+		tags that are only (or not) to be parsed.
+
+		Parameters:
+			array $tag_names - An array containing the name of tags to allow or
+												 not allow.
+			bool $allowed - Whether the tag names in $tag_names are to be allowed
+											or disallowed.
+
+		Note:
+			Just in case the above is confusing, consider this:
+
+				[url=http://mylink.com]Some text [url=http://anotherlink.com] more
+				text[/url] [b]some bold text[/b][/url]
+
+			If $tag_names was array('url') (for the url tag) and $allowed was
+			false, then the [url=http://anotherlink.com] tag would not be parsed
+			because that tag has been disallowed, however any tag NOT in the
+			$tag_names array with $allowed false would continue to be parsed.
+
+			So in this example:
+
+				[b]some bold text [url=mylink]linked text[/url] [i]italicized text
+				[/i][/b]
+
+			If $tag_names was array('url') (for [b]) and $allowed was true, then
+			only the [url] tag within [b] would be parsed. Everything else would
+			not be parsed.
+	*/
+	public function applyChildConstraints($tag_names, $allowed)
+	{
+		// Does this tag have any child nodes?
+		if($this->childNodesLength() > 0)
+		{
+			foreach($this->childNodes() as $childNode)
+			{
+				// Is this not a tag? Then skip it!
+				if(!$childNode->isTag())
+				{
+					continue;
+				}
+
+				// Do we need to disable this tag?
+				if((!empty($allowed) && !in_array($childNode->tagName(), $tag_names)) || (empty($allowed) && in_array($childNode->tagName(), $tag_names)))
+				{
+					// Yes, we do. So tell the node to have itself ignored, which will
+					// then mark it's closing node as ignored too.
+					$childNode->setIgnore(true);
+				}
+
+				// Now the child needs to apply the constraints as well.
+				$childNode->applyChildConstraints($tag_names, $allowed);
+			}
+		}
+	}
 }
 ?>

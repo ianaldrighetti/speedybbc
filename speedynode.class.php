@@ -315,7 +315,7 @@ class SpeedyNode
 	public function setParentNode($parentNode)
 	{
 		// Make sure the node is valid.
-		if(!is_object($parentNode) || !is_a($parentNode, 'SpeedyNode'))
+		if(!is_a($parentNode, 'SpeedyNode'))
 		{
 			return false;
 		}
@@ -375,7 +375,7 @@ class SpeedyNode
 	*/
 	public function addChildNode($childNode)
 	{
-		if(!is_object($childNode) || !is_a($childNode, 'SpeedyNode'))
+		if(!is_a($childNode, 'SpeedyNode'))
 		{
 			return false;
 		}
@@ -398,15 +398,21 @@ class SpeedyNode
 			return;
 		}
 
+		$this->checked = true;
+
+		// All the child nodes need to check their constraints.
 		if($this->childNodesLength > 0)
 		{
 			foreach($this->childNodes as $childNode)
 			{
-				$childNode->checkConstraints();
+				// That is unless they're a text node, in which case they have no
+				// constraints anyways.
+				if(!$childNode->isText() && !$childNode->checked())
+				{
+					$childNode->checkConstraints();
+				}
 			}
 		}
-
-		$this->checked = true;
 	}
 }
 
@@ -502,7 +508,9 @@ class SpeedyTagNode extends SpeedyNode
 		$this->ignore = false;
 		$this->required = array(
 												'parents' => array(),
+												'parents_count' => 0,
 												'children' => array(),
+												'children_count' => 0,
 											);
 		$this->closingNode = null;
 		$this->position = null;
@@ -537,23 +545,25 @@ class SpeedyTagNode extends SpeedyNode
 		// tag name.
 		elseif(SpeedyBBC::substr($this->text, 1, 1) == '/')
 		{
-			$this->tagName = SpeedyBBC::strtolower(trim(SpeedyBBC::substr($this->text, 2, -1)));
+			$this->tagName = SpeedyBBC::strtolower(SpeedyBBC::substr($this->text, 2, -1));
 
 			return $this->tagName;
 		}
 
-		// To get the name of the tag we will need to consider a few cases, such
-		// as if there is space, an equals sign, or an ending bracket.
-		$space = SpeedyBBC::strpos($this->text, ' ', 1);
-		$equals = SpeedyBBC::strpos($this->text, '=', 1);
-		$bracket = SpeedyBBC::strpos($this->text, ']', 1);
+		// We will start looking for a space, equals sign, or a closing bracket
+		// right after the opening bracket.
+		$pos = 1;
+		$length = SpeedyBBC::strlen($this->text);
+		while($pos < $length && $this->text[$pos] != ' ' && $this->text[$pos] != '=' && $this->text[$pos] != ']')
+		{
+			// If we are within the while-block, that means we can keep moving
+			// along.
+			$pos++;
+		}
 
-		//
-		$max = max($space === false ? -1 : $space, $equals === false ? -1 : $equals, $bracket === false ? -1 : $bracket);
-
-		// Now we will go ahead and remove the junk we don't want, and then
-		// lower case the name.
-		$this->tagName = SpeedyBBC::strtolower(trim(SpeedyBBC::substr($this->text, 1, min($space === false ? $max + 1 : $space, $equals === false ? $max + 1 : $equals, $bracket === false ? $max + 1 : $bracket) - 1)));
+		// $pos now contains the index position of the first space, first equals
+		// sign, or the first closing bracket.
+		$this->tagName = SpeedyBBC::strtolower(SpeedyBBC::substr($this->text, 1, $pos - 1));
 
 		return $this->tagName;
 	}
@@ -939,21 +949,14 @@ class SpeedyTagNode extends SpeedyNode
 			// Alert the parent node, unless there isn't one, or if it isn't a tag
 			// (which shouldn't be a possibility anyways, seeing as text nodes
 			// can't have children -- so sad).
-			if($this->parentNode() !== null && $this->parentNode()->isTag())
+			if($this->parentNode() !== null && $this->parentNode()->isTag() && $this->parentNode()->dependsOnChildren())
 			{
 				// We will want to make sure the parent node has checked it's own
 				// constraints... If it already checked them, that's fine, it won't
 				// do it more than once.
 				$this->parentNode()->checkConstraints();
 
-				// The parent node should be ignored if it depends on its children
-				// (this node being one of those children). Once the node has been
-				// ignored, that node will do the same exact thing we're doing right
-				// here.
-				if($this->parentNode()->dependsOnChildren())
-				{
-					$this->parentNode()->setIgnore(true);
-				}
+				$this->parentNode()->setIgnore(true);
 			}
 
 			// If the node has no children, then we can't notify them of the
@@ -965,16 +968,18 @@ class SpeedyTagNode extends SpeedyNode
 				// nodes -- if necessary.
 				foreach($this->childNodes as $childNode)
 				{
+					// If the child node doesn't depend on it's parent (this node)
+					// then no need to ignore it as well.
+					if($childNode->isText() || !$childNode->dependsOnParent())
+					{
+						// We can ignore children that are text nodes.
+						continue;
+					}
+
 					// Make sure the constraints have been checked.
 					$childNode->checkConstraints();
 
-					// We can only ignore nodes that are tags, and we only need to
-					// ignore them if the tag depends on it's parent (which would be
-					// this node).
-					if($childNode->isTag() && $childNode->dependsOnParent())
-					{
-						$childNode->setIgnore(true);
-					}
+					$childNode->setIgnore(true);
 				}
 			}
 		}
@@ -1001,8 +1006,12 @@ class SpeedyTagNode extends SpeedyNode
 		}
 		else
 		{
-			$this->required['parents'] = $parents;
-			$this->required['children'] = $children;
+			$this->required = array(
+													'parents' => $parents,
+													'parents_count' => count($parents),
+													'children' => $children,
+													'children_count' => count($children),
+												);
 
 			return true;
 		}
@@ -1043,7 +1052,7 @@ class SpeedyTagNode extends SpeedyNode
 	{
 		// A node cannot have a closing tag if it is a closing tag itself. Also,
 		// the passed object must be a SpeedyTagNode, as well as a closing tag.
-		if($this->isClosing() || !is_object($closingNode) || !is_a($closingNode, 'SpeedyTagNode') || !$closingNode->isClosing())
+		if($this->isClosing() || !is_a($closingNode, 'SpeedyTagNode') || !$closingNode->isClosing())
 		{
 			return false;
 		}
@@ -1115,7 +1124,7 @@ class SpeedyTagNode extends SpeedyNode
 	*/
 	public function dependsOnParent()
 	{
-		return count($this->required['parents']) > 0;
+		return $this->required['parents_count'] > 0;
 	}
 
 	/*
@@ -1133,7 +1142,7 @@ class SpeedyTagNode extends SpeedyNode
 	*/
 	public function dependsOnChildren()
 	{
-		return count($this->required['children']) > 0;
+		return $this->required['children_count'] > 0;
 	}
 
 	/*
@@ -1154,7 +1163,7 @@ class SpeedyTagNode extends SpeedyNode
 	*/
 	public function checkConstraints()
 	{
-		if($this->checked || $this->tagType() == 'closing')
+		if($this->checked || $this->isClosing())
 		{
 			return;
 		}
@@ -1164,7 +1173,7 @@ class SpeedyTagNode extends SpeedyNode
 		$this->checked = true;
 
 		// We can't check parent constraints if there aren't any, can we?
-		if(count($this->required['parents']) > 0)
+		if($this->required['parents_count'] > 0)
 		{
 			// Checking if the required parent tag is there is straightforward.
 			if($this->parentNode() === null || $this->parentNode()->isText() || !in_array($this->parentNode()->tagName(), $this->required['parents']))
@@ -1176,7 +1185,7 @@ class SpeedyTagNode extends SpeedyNode
 
 		// Same goes for child constraints, if there aren't any to check, then
 		// there aren't any to check ;-).
-		if(count($this->required['children']) > 0)
+		if($this->required['children_count'] > 0)
 		{
 			// There is a bit more work when it comes to checking the child nodes,
 			// but not much.
@@ -1209,9 +1218,30 @@ class SpeedyTagNode extends SpeedyNode
 		{
 			foreach($this->childNodes as $childNode)
 			{
-				$childNode->checkConstraints();
+				// But don't check them if they're a text node... No point!
+				if(!$childNode->isText())
+				{
+					$childNode->checkConstraints();
+				}
 			}
 		}
+	}
+
+	/*
+		Method: checked
+
+		Indicates whether the node has checked it's constraints yet.
+
+		Parameters:
+			none
+
+		Returns:
+			bool - Returns true if the node has checked it's constraints, false if
+						 not.
+	*/
+	public function checked()
+	{
+		return $this->checked || $this->isClosing();
 	}
 }
 ?>

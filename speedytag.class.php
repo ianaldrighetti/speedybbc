@@ -164,7 +164,7 @@ class SpeedyTag
 		{
 			if(isset($options[$attribute]))
 			{
-				call_user_func(array($this, 'set'. $attribute), $options[SpeedyBBC::strtolower($attribute)]);
+				$this->{'set'. $attribute}($options[SpeedyBBC::strtolower($attribute)]);
 			}
 		}
 	}
@@ -190,19 +190,11 @@ class SpeedyTag
 	*/
 	public function setName($name)
 	{
-		$name = trim(strtolower($name));
+		$name = strtolower($name);
 
-		// Make sure the name isn't empty.
-		if(SpeedyBBC::strlen($name) == 0)
+		// Make sure the name isn't empty, or otherwise invalid.
+		if(SpeedyBBC::strlen($name) == 0 || preg_match('~^([a-z0-9-_])+$~i', $name) == 0)
 		{
-			return false;
-		}
-
-		// The name of a tag can only contain alphanumeric characters, dashes,
-		// and/or underscores.
-		if(preg_match('~^([a-z0-9-_])+$~i', $name) == 0)
-		{
-			// We found an unacceptable character!
 			return false;
 		}
 
@@ -378,7 +370,7 @@ class SpeedyTag
 		$accepted = array();
 		foreach($attributes as $name => $options)
 		{
-			$name = SpeedyBBC::strtolower(trim($name));
+			$name = SpeedyBBC::strtolower($name);
 
 			// Make sure the attribute name is alright and that a replace value is
 			// specified if the tag is optional.
@@ -517,7 +509,7 @@ class SpeedyTag
 			// Looks like we do...
 			foreach($required as $tag_name)
 			{
-				$tag_name = SpeedyBBC::strtolower(trim($tag_name));
+				$tag_name = SpeedyBBC::strtolower($tag_name);
 
 				// Make sure the name of the tag is allowed.
 				if(preg_match('~^([a-z0-9_-])+$~i', $tag_name) > 0)
@@ -562,10 +554,10 @@ class SpeedyTag
 		{
 			foreach($required as $tag_name)
 			{
-				$tag_name = SpeedyBBC::strtolower(trim($tag_name));
+				$tag_name = SpeedyBBC::strtolower($tag_name);
 
 				// Make sure the name of the tag is allowed.
-				if(preg_match('~^([a-z0-9_-])+$~i', $tag_name) > 0)
+				if($tag_name == '[text]' || preg_match('~^([a-z0-9_-])+$~i', $tag_name) > 0)
 				{
 					$this->required_children[] = $tag_name;
 				}
@@ -617,11 +609,11 @@ class SpeedyTag
 
 			foreach($disallowed as $tag_name)
 			{
-				$tag_name = SpeedyBBC::strtolower(trim($tag_name));
+				$tag_name = SpeedyBBC::strtolower($tag_name);
 
 				// No sense in clogging up the "tubes" if the tag name isn't even
 				// allowed...
-				if(preg_match('~^([a-z0-9_-])+$~i', $tag_name) > 0)
+				if($tag_name == '[text]' || preg_match('~^([a-z0-9_-])+$~i', $tag_name) > 0)
 				{
 					// Looks good!
 					$this->disallowed_children[] = $tag_name;
@@ -664,9 +656,9 @@ class SpeedyTag
 
 			foreach($allowed as $tag_name)
 			{
-				$tag_name = SpeedyBBC::strtolower(trim($tag_name));
+				$tag_name = SpeedyBBC::strtolower($tag_name);
 
-				if(preg_match('~^([a-z0-9_-])+$~i', $tag_name) > 0)
+				if($tag_name == '[text]' || preg_match('~^([a-z0-9_-])+$~i', $tag_name) > 0)
 				{
 					$this->allowed_children[] = $tag_name;
 				}
@@ -819,14 +811,13 @@ class SpeedyTag
 	*/
 	public function isValid()
 	{
-		// A name for the tag is required, along with the type of tag.
-		if(SpeedyBBC::strlen($this->name()) == 0 || SpeedyBBC::strlen($this->type()) == 0)
+		if($this->name() === null || $this->type() === null)
 		{
 			return false;
 		}
 
 		// Hmm, I guess this is the only other things we need to check...
-		if(SpeedyBBC::substr($this->type(), -9, 9) == 'attribute')
+		if($this->type() == 'attribute' || $this->type() == 'empty-attribute')
 		{
 			return count($this->attributes()) > 0;
 		}

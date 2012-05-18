@@ -22,6 +22,10 @@
 //                              Version: 1.0                              //
 ////////////////////////////////////////////////////////////////////////////
 
+// PHP doesn't allow class constants to be set equal to a function value, so
+// we will need to go ahead and set that to a global constant.
+define('SPDY_MB_EXISTS', function_exists('mb_internal_encoding'));
+
 /*
 	Class: SpeedyBBC
 
@@ -64,7 +68,7 @@ class SpeedyBBC
 
 		// Let's see if we can set the default encoding for the multi-byte
 		// extension in PHP.
-		if(!empty($encoding) && function_exists('mb_internal_encoding'))
+		if(!empty($encoding) && SPDY_MB_EXISTS)
 		{
 			mb_internal_encoding($encoding);
 		}
@@ -238,7 +242,7 @@ class SpeedyBBC
 																								 $fonts = array($value);
 																							 }
 
-																							 $supported = array(\'arial\', \'helvetica\', \'arial black\', \'comic sans ms\', \'courier new\', \'impact\', \'lucida console\', \'monaco\', \'tahoma\', \'geneva\', \'yimes new roman\', \'trebuchet ms\', \'verdana\', \'symbol\', \'georgia\');
+																							 $supported = array(\'arial\', \'helvetica\', \'arial black\', \'comic sans ms\', \'courier new\', \'impact\', \'lucida console\', \'monaco\', \'tahoma\', \'geneva\', \'times new roman\', \'trebuchet ms\', \'verdana\', \'symbol\', \'georgia\');
 																							 $return = array();
 																							 foreach($fonts as $font)
 																							 {
@@ -355,15 +359,19 @@ class SpeedyBBC
 									'attributes' => array(
 																		'width' => array(
 																								 'regex' => '~\d+~',
+																								 'optional' => true,
+																								 'replace' => '',
 																							 ),
 																		'height' => array(
 																									'regex' => '~\d+~',
+																									'optional' => true,
+																									'replace' => '',
 																								),
 																	),
 									'callback' => create_function('$content, $data', '
 																	if(preg_match(\'~(?:((?:http)(?:s)?://|www\.)(?:[\w+?\.\w+])+(?:[a-zA-Z0-9\~\!\@\#\$\%\^\&amp;\*\(\)_\-\=\+\\\/\?\.\:\;\\\'\,]*)?)~i\', $content))
 																	{
-																		return \'<img src="\'. $content. \'" width="\'. $data[\'width\']. \'" height="\'. $data[\'height\']. \'" alt="" />\';
+																		return \'<img src="\'. $content. \'"\'. (isset($data[\'width\']) ? \' width="\'. $data[\'width\']. \'"\' : \'\'). (isset($data[\'height\']) ? \' height="\'. $data[\'height\']. \'"\' : \'\'). \' alt="" />\';
 																	}
 																	else
 																	{
@@ -479,7 +487,7 @@ class SpeedyBBC
 	public function addTag($tag)
 	{
 		// We require that you define a BBCode tag through the SpeedyTag class.
-		if(!is_object($tag) || !is_a($tag, 'SpeedyTag') || !$tag->isValid())
+		if(!is_a($tag, 'SpeedyTag') || !$tag->isValid())
 		{
 			return false;
 		}
@@ -552,20 +560,14 @@ class SpeedyBBC
 	*/
 	public function tagExists($tag)
 	{
-		// Make sure $tag is a string or a valid SpeedyTag.
-		if(!is_string($tag) && (!is_object($tag) || !is_a($tag, 'SpeedyTag') || !$tag->isValid()))
+		// Do you want to check by name?
+		if(is_string($tag))
 		{
-			return false;
-		}
-		elseif(is_string($tag))
-		{
-			// If we were passed a string, then this will be a pretty simple
-			// check.
-			return array_key_exists(SpeedyBBC::strtolower($tag), $this->tags) && $this->tags[SpeedyBBC::strtolower($tag)]['count'] > 0;
+			return !empty($this->tags[SpeedyBBC::strtolower($tag)]);
 		}
 		// Check to see if there is the possibility of $tag being within the
-		// supported tags list.
-		elseif(!array_key_exists($tag->name(), $this->tags) || $this->tags[$tag->name()]['count'] < 1)
+		// supported tags list, along with it being a SpeedyTag instance.
+		elseif(!is_a($tag, 'SpeedyTag') || !$tag->isValid() || empty($this->tags[$tag->name()]['tags']))
 		{
 			return false;
 		}
@@ -602,7 +604,7 @@ class SpeedyBBC
 	*/
 	public function removeTag($tag)
 	{
-		if(!is_string($tag) && (!is_object($tag) || !is_a($tag, 'SpeedyTag') || !$tag->isValid()))
+		if(!is_string($tag) && (!is_a($tag, 'SpeedyTag') || !$tag->isValid()))
 		{
 			return false;
 		}
@@ -738,21 +740,20 @@ class SpeedyBBC
 			$last_pos = $pos;
 			while($pos < $length)
 			{
-				$amp_pos = SpeedyBBC::strpos($message, '&', $pos);
-				$brk_pos = SpeedyBBC::strpos($message, ']', $pos);
+				unset($brk_pos);
 
 				// Does the bracket come before the ampersand?
 				// But the ampersand may not even be a quote as well!
-				if($amp_pos === false || $brk_pos === false || $brk_pos < $amp_pos || !in_array($quote_type = SpeedyBBC::substr($message, $amp_pos, 6), array('&quot;', '&#039;')))
+				if(($amp_pos = SpeedyBBC::strpos($message, '&', $pos)) === false || ($brk_pos = SpeedyBBC::strpos($message, ']', $pos)) === false || $brk_pos < $amp_pos || !in_array($quote_type = SpeedyBBC::substr($message, $amp_pos, 6), array('&quot;', '&#039;')))
 				{
 					// Sweet!
-					$pos = $brk_pos;
+					$pos = !isset($brk_pos) ? SpeedyBBC::strpos($message, ']', $pos) : $brk_pos;
 
 					break;
 				}
 
 				// Now, can we find the next quote?
-				while($amp_pos + 6 < $length && ($amp_pos = SpeedyBBC::strpos($message, $quote_type, $amp_pos + 6)) !== false && SpeedyBBC::substr($message, $amp_pos - 1, 1) == '\\');
+				while($amp_pos + 6 < $length && ($amp_pos = SpeedyBBC::strpos($message, $quote_type, $amp_pos + 6)) !== false && $message[$amp_pos - 1] == '\\');
 
 				// Did our search come up with nothing?
 				if($amp_pos + 6 >= $length || $amp_pos === false)
@@ -764,7 +765,7 @@ class SpeedyBBC
 			}
 
 			// So, did we find a valid tag?
-			if(SpeedyBBC::substr($message, $pos, 1) == ']')
+			if($message[$pos] == ']')
 			{
 				// Yup, we sure did! So we will want to make a node to contain the
 				// text preceding the tag, otherwise it will be forgotten...
@@ -1020,224 +1021,235 @@ class SpeedyBBC
 					// matches for the current tag. Luckily we have another method
 					// which will handle that.
 					$found = false;
-					$matches = $this->find_tags($struct[$pos]);
 
-					// So, did we find anything?
-					if(count($matches) > 0)
+					// Let's get to work, and what work it will be :-/.
+					$tag_content = null;
+					$tag_handled = false;
+					foreach($this->tags[$struct[$pos]->tagName()]['tags'] as $match)
 					{
-						// Let's get to work, and what work it will be :-/.
-						$tag_content = null;
-						$tag_handled = false;
-						foreach($matches as $match)
+						if(($match->isEmpty() ? SpeedyBBC::substr($match->type(), 6) : $match->type()) != $struct[$pos]->tagType())
 						{
-							$data = null;
+							continue;
+						}
 
-							// Let's see if there is any data which needs to be validated.
-							// We need to handle each tag differently, depending upon the
-							// type. First off: value ([name=...])!
-							if($struct[$pos]->tagType() == 'value' || $struct[$pos]->tagType() == 'empty-value')
+						$data = null;
+
+						// Let's see if there is any data which needs to be validated.
+						// We need to handle each tag differently, depending upon the
+						// type. First off: value ([name=...])!
+						if($struct[$pos]->tagType() == 'value' || $struct[$pos]->tagType() == 'empty-value')
+						{
+							// Fetch the value of the tag so we can get started.
+							$data = $struct[$pos]->value();
+
+							// Now fetch the options for this match.
+							$options = $match->value();
+							$regex = isset($options['regex']) && SpeedyBBC::strlen($options['regex']) > 0 ? $options['regex'] : false;
+							$callback = isset($options['callback']) && is_callable($options['callback']) ? $options['callback'] : false;
+
+							// Does the tag have any regular expression specified?
+							if($regex !== false && @preg_match($regex, $data) == 0)
 							{
-								// Fetch the value of the tag so we can get started.
-								$data = $struct[$pos]->value();
-
-								// Now fetch the options for this match.
-								$options = $match->value();
-								$regex = isset($options['regex']) && $this->strlen($options['regex']) > 0 ? $options['regex'] : false;
-								$callback = isset($options['callback']) && is_callable($options['callback']) ? $options['callback'] : false;
-
-								// Does the tag have any regular expression specified?
-								if($regex !== false && @preg_match($regex, $data) == 0)
-								{
-									// Looks like this match is, erm, no match. So our search
-									// continues!
-									continue;
-								}
-
-								if($callback !== false && ($data = call_user_func($callback, $data)) === false)
-								{
-									// Hmm, I guess the callback wasn't very happy with the
-									// users selected input. Oh well, better luck next match?
-									continue;
-								}
-							}
-							// Now to handle an attribute typed tag, such as:
-							// [name attr=val].
-							elseif($struct[$pos]->tagType() == 'attribute' || $struct[$pos]->tagType() == 'empty-attribute')
-							{
-								// Fetch all the set attributes.
-								$data = $struct[$pos]->attributes();
-
-								// Keep track of whether an error occurred.
-								$attr_error = false;
-								foreach($match->attributes() as $attr_name => $options)
-								{
-									// If this tag is optional, we may need to skip this if
-									// the attribute isn't present.
-									if($options['optional'] === true && !array_key_exists($attr_name, $data))
-									{
-										continue;
-									}
-
-									// Regular expression, perhaps?
-									if(isset($options['regex']) && $this->strlen($options['regex']) > 0 && @preg_match($options['regex'], $data[$attr_name]) == 0)
-									{
-										// Well, that's no good.
-										$attr_error = true;
-
-										continue;
-									}
-
-									if(isset($options['callback']) && is_callable($options['callback']) && ($data[$attr_name] = call_user_func($options['callback'], $data[$attr_name])) === false)
-									{
-										// This isn't any good, either.
-										$attr_error = true;
-
-										continue;
-									}
-								}
-
-								// Did we encounter an error?
-								if($attr_error === true)
-								{
-									continue;
-								}
-							}
-
-							// TODO: Disallowed/allowed children
-
-							// Thankfully, parent/child constraints have already been
-							// checked! So we can get right to it!
-							// We may need to gather up the content of the tag.
-							if((is_callable($match->callback()) || $match->parseContent() === false) && $tag_content === null)
-							{
-								// Luckily there is a function to do this for us.
-								$tag_content = array_slice($struct, $pos + 1, $struct[$pos]->closingNode()->position() - $pos - 1);
-							}
-
-							$tag_handled_content = '';
-							if(is_callable($match->callback()) || $match->parseContent() === false)
-							{
-								// Does the tag want the content parsed or not?
-								if($match->parseContent())
-								{
-									$tag_handled_content = $this->interpretStruct(array($tag_content, count($tag_content)));
-								}
-								// If the tag doesn't want the content parsed, then we will
-								// just collect all the text components together.
-								elseif(is_array($tag_content))
-								{
-									foreach($tag_content as $n)
-									{
-										$tag_handled_content .= $n->text();
-									}
-								}
-							}
-
-							$tag_returned_content = false;
-							if(is_callable($match->callback()) && ($tag_returned_content = call_user_func($match->callback(), $tag_handled_content, $data)) === false)
-							{
-								// That's not a good sign.
+								// Looks like this match is, erm, no match. So our search
+								// continues!
 								continue;
 							}
 
-							if($match->blockLevel())
+							if($callback !== false && ($data = call_user_func($callback, $data)) === false)
 							{
-								// Looks like we may need to close some tags.
-								$popped = null;
-								while(($popped = array_pop($opened_tags)) !== null && !$popped['match']->blockLevel())
-								{
-									$message .= str_replace(array_keys($popped['replacements']), array_values($popped['replacements']), $popped['match']->after());
-									$opened_count--;
+								// Hmm, I guess the callback wasn't very happy with the
+								// users selected input. Oh well, better luck next match?
+								continue;
+							}
+						}
+						// Now to handle an attribute typed tag, such as:
+						// [name attr=val].
+						elseif($struct[$pos]->tagType() == 'attribute' || $struct[$pos]->tagType() == 'empty-attribute')
+						{
+							// Fetch all the set attributes.
+							$data = $struct[$pos]->attributes();
 
-									// Mark the other closing tag as ignored, it won't be
-									// needed anymore.
-									$popped['node']->closingNode()->setIgnore(true);
+							// Keep track of whether an error occurred.
+							$attr_error = false;
+							foreach($match->attributes() as $attr_name => $options)
+							{
+								// If this tag is optional, we may need to skip this if
+								// the attribute isn't present.
+								if($options['optional'] === true && !array_key_exists($attr_name, $data))
+								{
+									continue;
 								}
 
-								if($popped !== null && $popped['match']->blockLevel())
+								// Regular expression, perhaps?
+								if(isset($options['regex']) && SpeedyBBC::strlen($options['regex']) > 0 && @preg_match($options['regex'], $data[$attr_name]) == 0)
 								{
-									// Woops, we should probably put that back!
-									$opened_tags[] = $popped;
-									$opened_count++;
+									// Well, that's no good.
+									$attr_error = true;
+
+									continue;
 								}
-							}
 
-							// There could be some things in need of replacing.
-							$replacements = array();
-
-							// {value} gets replaced with the value.
-							if($struct[$pos]->tagType() == 'value' || $struct[$pos]->tagType() == 'empty-value')
-							{
-								$replacements['{value}'] = $data;
-							}
-							// ... and all {attribute name}'s get replace with their
-							// values as well.
-							elseif($struct[$pos]->tagType() == 'attribute' || $struct[$pos]->tagType() == 'empty-attribute')
-							{
-								foreach($data as $attrName => $attrValue)
+								if(isset($options['callback']) && is_callable($options['callback']) && ($data[$attr_name] = call_user_func($options['callback'], $data[$attr_name])) === false)
 								{
-									$replacements['{'. $attrName. '}'] = $attrValue;
-								}
-							}
+									// This isn't any good, either.
+									$attr_error = true;
 
-							// If there was a callback to handle the content within the
-							// tag, we may need to have a replacement for that as well.
-							if($tag_returned_content !== false)
-							{
-								$replacements['[content]'] = $tag_returned_content;
-							}
-
-							$message .= str_ireplace(array_keys($replacements), array_values($replacements), $match->before());
-
-							// Was there content which needed to be added?
-							if(is_callable($match->callback()) || !$match->parseContent())
-							{
-								// If the BBCode tag took the handled content then we want
-								// to use the returned content, otherwise the previously
-								// handled (handled being parsed or not).
-								$message .= $tag_returned_content !== false ? $tag_returned_content : $tag_handled_content;
-							}
-
-							// Do we need to add this to the opened tags array? We won't
-							// need to if the tag is empty, if the BBCode tag returned the
-							// content, or if the content wasn't parsed.
-							if(!$match->isEmpty() && !is_callable($match->callback()) && $match->parseContent())
-							{
-								// Alright, go ahead and add this tag to the opened list.
-								$opened_tags[] = array(
-																	 'match' => $match,
-																	 'replacements' => $replacements,
-																	 'pos' => $pos,
-																	 'node' => $struct[$pos],
-																 );
-							}
-							else
-							{
-								// Looks like we'll deal with the closing tag right now.
-								$message .= str_ireplace(array_keys($replacements), array_values($replacements), $match->after());
-
-								// Move the current position to the closing tag... Unless it
-								// is an empty tag, in which case it has no closing tag.
-								if(!$match->isEmpty())
-								{
-									$pos = $struct[$pos]->closingNode()->position();
+									continue;
 								}
 							}
 
-							// We handled the tag, so go ahead and move along.
-							$tag_handled = true;
-
-							break;
+							// Did we encounter an error?
+							if($attr_error === true)
+							{
+								continue;
+							}
 						}
 
-						// Move to the next item... Possibly. If not, then the tag will
-						// simply be added as text below.
-						if(!empty($tag_handled))
-						{
-							$pos++;
+						// TODO: Disallowed/allowed children
 
+						// Thankfully, parent/child constraints have already been
+						// checked! So we can get right to it!
+						// We may need to gather up the content of the tag.
+						if((is_callable($match->callback()) || $match->parseContent() === false) && $tag_content === null)
+						{
+							// Luckily there is a function to do this for us.
+							$tag_content = array_slice($struct, $pos + 1, $struct[$pos]->closingNode()->position() - $pos - 1);
+						}
+
+						$tag_handled_content = '';
+						if(is_callable($match->callback()) || $match->parseContent() === false)
+						{
+							// Does the tag want the content parsed or not?
+							if($match->parseContent())
+							{
+								$tag_handled_content = $this->interpretStruct(array($tag_content, $struct[$pos]->closingNode()->position() - $pos + 1));
+							}
+							// If the tag doesn't want the content parsed, then we will
+							// just collect all the text components together.
+							elseif(is_array($tag_content))
+							{
+								foreach($tag_content as $n)
+								{
+									$tag_handled_content .= $n->text();
+								}
+							}
+						}
+
+						$tag_returned_content = false;
+						if(is_callable($match->callback()) && ($tag_returned_content = call_user_func($match->callback(), $tag_handled_content, $data)) === false)
+						{
+							// That's not a good sign.
 							continue;
 						}
+
+						if($match->blockLevel())
+						{
+							// Looks like we may need to close some tags.
+							$popped = null;
+							while(($popped = array_pop($opened_tags)) !== null && !$popped['match']->blockLevel())
+							{
+								$message .= str_replace(array_keys($popped['replacements']), array_values($popped['replacements']), $popped['match']->after());
+								$opened_count--;
+
+								// Mark the other closing tag as ignored, it won't be
+								// needed anymore.
+								$popped['node']->closingNode()->setIgnore(true);
+							}
+
+							if($popped !== null && $popped['match']->blockLevel())
+							{
+								// Woops, we should probably put that back!
+								$opened_tags[] = $popped;
+								$opened_count++;
+							}
+						}
+
+						// There could be some things in need of replacing.
+						$replacements = array();
+						$replacement_count = 0;
+
+						// {value} gets replaced with the value.
+						if($struct[$pos]->tagType() == 'value' || $struct[$pos]->tagType() == 'empty-value')
+						{
+							$replacements['{value}'] = $data;
+							$replacement_count++;
+						}
+						// ... and all {attribute name}'s get replace with their
+						// values as well.
+						elseif($struct[$pos]->tagType() == 'attribute' || $struct[$pos]->tagType() == 'empty-attribute')
+						{
+							foreach($match->attributes() as $attrName => $attrData)
+							{
+								// Perhaps the attribute is optional, in which place we need
+								// to do something a bit different.
+								if(!empty($attrData['optional']))
+								{
+									$data[$attrName] = array_key_exists($attrName, $data) ? str_replace('[value]', $data[$attrName], $attrData['replace']) : '';
+								}
+
+								$replacements['{'. $attrName. '}'] = $data[$attrName];
+								$replacement_count++;
+							}
+						}
+
+						// If there was a callback to handle the content within the
+						// tag, we may need to have a replacement for that as well.
+						if($tag_returned_content !== false)
+						{
+							$replacements['[content]'] = $tag_returned_content;
+							$replacement_count++;
+						}
+
+						$message .= $replacement_count > 0 ? str_ireplace(array_keys($replacements), array_values($replacements), $match->before()) : $match->before();
+
+						// Was there content which needed to be added?
+						if(is_callable($match->callback()) || !$match->parseContent())
+						{
+							// If the BBCode tag took the handled content then we want
+							// to use the returned content, otherwise the previously
+							// handled (handled being parsed or not).
+							$message .= $tag_returned_content !== false ? $tag_returned_content : $tag_handled_content;
+						}
+
+						// Do we need to add this to the opened tags array? We won't
+						// need to if the tag is empty, if the BBCode tag returned the
+						// content, or if the content wasn't parsed.
+						if(!$match->isEmpty() && !is_callable($match->callback()) && $match->parseContent())
+						{
+							// Alright, go ahead and add this tag to the opened list.
+							$opened_tags[] = array(
+																 'match' => $match,
+																 'replacements' => $replacement_count > 0 ? $replacements : null,
+																 'pos' => $pos,
+																 'node' => $struct[$pos],
+															 );
+						}
+						else
+						{
+							// Looks like we'll deal with the closing tag right now.
+							$message .= $replacement_count > 0 ? str_ireplace(array_keys($replacements), array_values($replacements), $match->after()) : $match->after();
+
+							// Move the current position to the closing tag... Unless it
+							// is an empty tag, in which case it has no closing tag.
+							if(!$match->isEmpty())
+							{
+								$pos = $struct[$pos]->closingNode()->position();
+							}
+						}
+
+						// We handled the tag, so go ahead and move along.
+						$tag_handled = true;
+
+						break;
+					}
+
+					// Move to the next item... Possibly. If not, then the tag will
+					// simply be added as text below.
+					if(!empty($tag_handled))
+					{
+						$pos++;
+
+						continue;
 					}
 
 					// If we got to this point, this means that the tag has no
@@ -1256,7 +1268,7 @@ class SpeedyBBC
 					// horribly wrong.
 					if($popped !== null && $popped['node']->tagName() == $struct[$pos]->tagName())
 					{
-						$message .= str_ireplace(array_keys($popped['replacements']), array_values($popped['replacements']), $popped['match']->after());
+						$message .= $popped['replacements'] !== null ? str_ireplace(array_keys($popped['replacements']), array_values($popped['replacements']), $popped['match']->after()) : $popped['match']->after();
 
 						// Got it!
 						$pos++;
@@ -1271,16 +1283,18 @@ class SpeedyBBC
 				}
 			}
 
-			// !!! TODO: Look for any consecutive nodes that are text/ignored to
-			// make the formatting go faster.
+			// If we have consecutive text nodes (or tag nodes which are to be
+			// ignored anyways), why not combine them all into one?
+			$buffer = '';
+			while($pos < $struct_length && ($struct[$pos]->isText() || ($struct[$pos]->isTag() && $struct[$pos]->ignore())))
+			{
+				$buffer .= $struct[$pos++]->text();
+			}
 
 			// Add the text to the message. This could be actual text, or it could
 			// be a tag which was not defined/valid... Either way, who really
 			// cares? I know I don't! :-P.
-			$message .= $this->format_text($struct[$pos]->text());
-
-			// Now we can move right along.
-			$pos++;
+			$message .= $this->format_text($buffer);
 		}
 
 		return $message;
@@ -1390,7 +1404,7 @@ class SpeedyBBC
 	*/
 	public static function strlen($str)
 	{
-		return function_exists('mb_strlen') ? mb_strlen($str) : strlen($str);
+		return SPDY_MB_EXISTS ? mb_strlen($str) : strlen($str);
 	}
 
 	/*
@@ -1412,11 +1426,11 @@ class SpeedyBBC
 	{
 		if($length === null)
 		{
-			return function_exists('mb_substr') ? mb_substr($str, $start) : substr($str, $start);
+			return SPDY_MB_EXISTS ? mb_substr($str, $start) : substr($str, $start);
 		}
 		else
 		{
-			return function_exists('mb_substr') ? mb_substr($str, $start, $length) : substr($str, $start, $length);
+			return SPDY_MB_EXISTS ? mb_substr($str, $start, $length) : substr($str, $start, $length);
 		}
 	}
 
@@ -1442,11 +1456,11 @@ class SpeedyBBC
 	{
 		if($start === null)
 		{
-			return function_exists('mb_strpos') ? mb_strpos($haystack, $needle) : strpos($haystack, $needle);
+			return SPDY_MB_EXISTS ? mb_strpos($haystack, $needle) : strpos($haystack, $needle);
 		}
 		else
 		{
-			return function_exists('mb_strpos') ? mb_strpos($haystack, $needle, $start) : strpos($haystack, $needle, $start);
+			return SPDY_MB_EXISTS ? mb_strpos($haystack, $needle, $start) : strpos($haystack, $needle, $start);
 		}
 	}
 
@@ -1464,7 +1478,7 @@ class SpeedyBBC
 	*/
 	public static function strtolower($str)
 	{
-		return function_exists('mb_strtolower') ? mb_strtolower($str) : strtolower($str);
+		return SPDY_MB_EXISTS ? mb_strtolower($str) : strtolower($str);
 	}
 
 	/*
@@ -1481,7 +1495,7 @@ class SpeedyBBC
 	*/
 	public static function htmlspecialchars($str)
 	{
-		return htmlspecialchars($str, ENT_QUOTES, function_exists('mb_internal_encoding') ? mb_internal_encoding() : 'UTF-8');
+		return htmlspecialchars($str, ENT_QUOTES, SPDY_MB_EXISTS ? mb_internal_encoding() : 'UTF-8');
 	}
 }
 

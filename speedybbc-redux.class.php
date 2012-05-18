@@ -275,6 +275,7 @@ class SpeedyBBC
 									'before' => '<a href="[content]" target="_blank">',
 									'after' => '</a>',
 									'parseContent' => false,
+									'disallowedChildren' => array('url', 'iurl', 'email'),
 								),
 								array(
 									'name' => 'url',
@@ -284,6 +285,7 @@ class SpeedyBBC
 														 ),
 									'before' => '<a href="{value}" target="_blank">',
 									'after' => '</a>',
+									'disallowedChildren' => array('url', 'iurl', 'email'),
 								),
 								array(
 									'name' => 'iurl',
@@ -300,6 +302,7 @@ class SpeedyBBC
 									'before' => '',
 									'after' => '',
 									'parseContent' => false,
+									'disallowedChildren' => array('url', 'iurl', 'email'),
 								),
 								/* allow mailto: in above!!! */
 								array(
@@ -310,6 +313,7 @@ class SpeedyBBC
 														 ),
 									'before' => '<a href="{value}">',
 									'after' => '</a>',
+									'disallowedChildren' => array('url', 'iurl', 'email'),
 								),
 								array(
 									'name' => 'email',
@@ -326,6 +330,7 @@ class SpeedyBBC
 									'before' => '<a href="mailto:[content]" target="_blank">',
 									'after' => '</a>',
 									'parseContent' => false,
+									'disallowedChildren' => array('url', 'iurl', 'email'),
 								),
 								array(
 									'name' => 'email',
@@ -335,6 +340,7 @@ class SpeedyBBC
 														 ),
 									'before' => '<a href="mailto:{value}" target="_blank">',
 									'after' => '</a>',
+									'disallowedChildren' => array('url', 'iurl', 'email'),
 								),
 								/* Images */
 								array(
@@ -1105,7 +1111,12 @@ class SpeedyBBC
 							}
 						}
 
-						// TODO: Disallowed/allowed children
+						// Perhaps the match disallows (or only allows) certain tags?
+						if($match->allowedChildren() !== null || $match->disallowedChildren() !== null)
+						{
+							// Not much for us to do here...
+							$struct[$pos]->applyChildConstraints($match->allowedChildren() !== null ? $match->allowedChildren() : $match->disallowedChildren(), $match->allowedChildren() !== null);
+						}
 
 						// Thankfully, parent/child constraints have already been
 						// checked! So we can get right to it!

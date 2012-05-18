@@ -144,8 +144,8 @@ class SpeedyTag
 		$this->required_parents = array();
 		$this->required_children = array();
 		$this->block_level = false;
-		$this->disallowed_children = array();
-		$this->allowed_children = array();
+		$this->disallowed_children = null;
+		$this->allowed_children = null;
 		$this->disable_formatting = null;
 
 		// Lower case the index names.
@@ -620,13 +620,20 @@ class SpeedyTag
 				}
 			}
 
+			// Were any even added?
+			if(count($this->disallowed_children) == 0)
+			{
+				// Set it back to NULL.
+				$this->disallowed_children = null;
+			}
+
 			// Oh, and don't forget to disable the allowed children option!
 			$this->setAllowedChildren(false);
 		}
 		// Not an array? Then we will assume you want to unset this option.
 		else
 		{
-			$this->disallowed_children = array();
+			$this->disallowed_children = null;
 		}
 	}
 
@@ -664,12 +671,18 @@ class SpeedyTag
 				}
 			}
 
+			// Did anything even get added?
+			if(count($this->allowed_children) == 0)
+			{
+				$this->allowed_children = null;
+			}
+
 			// Now disable the disallowed children option.
 			$this->setDisallowedChildren(false);
 		}
 		else
 		{
-			$this->allowed_children = array();
+			$this->allowed_children = null;
 		}
 	}
 

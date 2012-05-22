@@ -1128,6 +1128,23 @@ class SpeedyTagNode extends SpeedyNode
 	}
 
 	/*
+		Method: requiredParents
+
+		Returns an array containing the names of the tag that the node depends
+		upon.
+
+		Parameters:
+			none
+
+		Returns:
+			array - An array containing tag names.
+	*/
+	public function requiredParents()
+	{
+		return $this->required['parents'];
+	}
+
+	/*
 		Method: dependsOnChildren
 
 		Indicates whether the tag represented by the node depends on its

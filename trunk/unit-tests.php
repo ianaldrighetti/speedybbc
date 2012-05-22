@@ -144,6 +144,11 @@ $test_cases = array(
 									'html' => '<a href="http://www.bing.com/" target="_blank">http://www.bing.com/</a>',
 								),
 								array(
+									'name' => 'Link w/o http://',
+									'bbc' => '[url=www.bing.com]www.bing.com[/url]',
+									'html' => '<a href="http://www.bing.com" target="_blank">www.bing.com</a>',
+								),
+								array(
 									'name' => 'Email',
 									'bbc' => '[email]me@example.com[/email]',
 									'html' => '<a href="mailto:me@example.com" target="_blank">me@example.com</a>',
@@ -167,6 +172,11 @@ $test_cases = array(
 								array(
 									'name' => 'Image w/attributes (optional, only width)',
 									'bbc' => '[img width=650]http://www.example.com/some-image.jpg[/img]',
+									'html' => '<img src="http://www.example.com/some-image.jpg" width="650" alt="" />',
+								),
+								array(
+									'name' => 'Image w/o http://',
+									'bbc' => '[img width=650]www.example.com/some-image.jpg[/img]',
 									'html' => '<img src="http://www.example.com/some-image.jpg" width="650" alt="" />',
 								),
 								'Empty tags',
@@ -201,6 +211,11 @@ $test_cases = array(
 									'name' => 'Columns',
 									'bbc' => '[columns]This is the first column[next]This is the second[next]... and this is the third[/columns]',
 									'html' => '<table><tr><td>This is the first column</td><td>This is the second</td><td>... and this is the third</td></tr></table>',
+								),
+								array(
+									'name' => '[table]',
+									'bbc' => '[table][tr][td]Column 1[/td][td]Column 2[/td][/tr][tr][td colspan=2]Spanning two columns...[/td][/tr][/table]',
+									'html' => '<table><tr><td>Column 1</td><td>Column 2</td></tr><tr><td colspan="2">Spanning two columns...</td></tr></table>',
 								),
 								'Security',
 								array(
@@ -343,9 +358,7 @@ foreach($test_cases as $test)
 		echo '
 			<h3>', $test['name'], '</h3>
 			<p>Input:</p>
-			<code>
-				', htmlspecialchars($test['bbc'], ENT_QUOTES), '
-			</code>
+			<code style="white-space: pre-line;">', htmlspecialchars($test['bbc'], ENT_QUOTES), '</code>
 
 			<p>Expected output:</p>
 			<code>

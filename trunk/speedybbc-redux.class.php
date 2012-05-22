@@ -266,7 +266,7 @@ class SpeedyBBC
 									'callback' => create_function('$content, $dummy', '
 																	if(preg_match(\'~(?:((?:http|ftp)(?:s)?://|www\.)(?:[\w+?\.\w+])+(?:[a-zA-Z0-9\~\!\@\#\$\%\^\&amp;\*\(\)_\-\=\+\\\/\?\.\:\;\\\'\,]*)?)~i\', $content))
 																	{
-																		return $content;
+																		return (substr($content, 0, 4) == \'www.\' ? \'http://\' : \'\'). $content;
 																	}
 																	else
 																	{
@@ -282,6 +282,8 @@ class SpeedyBBC
 									'type' => 'value',
 									'value' => array(
 															 'regex' => '~(?:((?:http|ftp)(?:s)?://|www\.)(?:[\w+?\.\w+])+(?:[a-zA-Z0-9\~\!\@\#\$\%\^\&amp;\*\(\)_\-\=\+\\\/\?\.\:\;\'\,]*)?)~i',
+															 'callback' => create_function('$value', '
+																							 return (substr($value, 0, 4) == \'www.\' ? \'http://\' : \'\'). $value;'),
 														 ),
 									'before' => '<a href="{value}" target="_blank">',
 									'after' => '</a>',
@@ -293,7 +295,7 @@ class SpeedyBBC
 									'callback' => create_function('$content, $dummy', '
 																	if(preg_match(\'~(?:((?:http|ftp)(?:s)?://|www\.)(?:[\w+?\.\w+])+(?:[a-zA-Z0-9\~\!\@\#\$\%\^\&amp;\*\(\)_\-\=\+\\\/\?\.\:\;\\\'\,]*)?)~i\', $content))
 																	{
-																		return \'<a href="\'. $content. \'>\'. $content. \'</a>\';
+																		return \'<a href="\'. (substr($content, 0, 4) == \'www.\' ? \'http://\' : \'\'). $content. \'>\'. $content. \'</a>\';
 																	}
 																	else
 																	{
@@ -310,6 +312,8 @@ class SpeedyBBC
 									'type' => 'value',
 									'value' => array(
 															 'regex' => '~(?:((?:http|ftp)(?:s)?://|www\.)(?:[\w+?\.\w+])+(?:[a-zA-Z0-9\~\!\@\#\$\%\^\&amp;\*\(\)_\-\=\+\\\/\?\.\:\;\'\,]*)?)~i',
+															 'callback' => create_function('$value', '
+																							 return (substr($value, 0, 4) == \'www.\' ? \'http://\' : \'\'). $value;'),
 														 ),
 									'before' => '<a href="{value}">',
 									'after' => '</a>',
@@ -349,7 +353,7 @@ class SpeedyBBC
 									'callback' => create_function('$content, $dummy', '
 																	if(preg_match(\'~(?:((?:http)(?:s)?://|www\.)(?:[\w+?\.\w+])+(?:[a-zA-Z0-9\~\!\@\#\$\%\^\&amp;\*\(\)_\-\=\+\\\/\?\.\:\;\\\'\,]*)?)~i\', $content))
 																	{
-																		return $content;
+																		return (substr($content, 0, 4) == \'www.\' ? \'http://\' : \'\'). $content;
 																	}
 																	else
 																	{
@@ -377,7 +381,7 @@ class SpeedyBBC
 									'callback' => create_function('$content, $data', '
 																	if(preg_match(\'~(?:((?:http)(?:s)?://|www\.)(?:[\w+?\.\w+])+(?:[a-zA-Z0-9\~\!\@\#\$\%\^\&amp;\*\(\)_\-\=\+\\\/\?\.\:\;\\\'\,]*)?)~i\', $content))
 																	{
-																		return \'<img src="\'. $content. \'"\'. (isset($data[\'width\']) ? \' width="\'. $data[\'width\']. \'"\' : \'\'). (isset($data[\'height\']) ? \' height="\'. $data[\'height\']. \'"\' : \'\'). \' alt="" />\';
+																		return \'<img src="\'. (substr($content, 0, 4) == \'www.\' ? \'http://\' : \'\'). $content. \'"\'. (isset($data[\'width\']) ? \' width="\'. $data[\'width\']. \'"\' : \'\'). (isset($data[\'height\']) ? \' height="\'. $data[\'height\']. \'"\' : \'\'). \' alt="" />\';
 																	}
 																	else
 																	{
@@ -387,7 +391,6 @@ class SpeedyBBC
 									'after' => '',
 									'parseContent' => false,
 								),
-								/* Maybe [img=...] (empty) and [img src= width= height=]? */
 								/* Some empty (no closing tags) BBCode */
 								array(
 									'name' => 'hr',
@@ -467,12 +470,35 @@ class SpeedyBBC
 									'blockLevel' => true,
 									'requiredParents' => array('tr'),
 								),
+								array(
+									'name' => 'td',
+									'type' => 'attribute',
+									'attributes' => array(
+																		'colspan' => array(
+																									 'regex' => '~\d+~',
+																									 'replace' => ' colspan="[value]"',
+																									 'optional' => true,
+																								 ),
+																		'width' => array(
+																								 'regex' => '~\d+~',
+																								 'replace' => ' width="[value]"',
+																								 'optional' => true,
+																							 ),
+																	),
+									'before' => '<td{colspan}{width}>',
+									'after' => '</td>',
+									'blockLevel' => true,
+									'requiredParents' => array('tr'),
+								),
 							);
 
 			// Let's add the tags.
 			foreach($tags as $tag)
 			{
-				$this->addTag(new SpeedyTag($tag));
+				if(!$this->addTag(new SpeedyTag($tag)))
+				{
+					echo $tag['name'], '<br />';
+				}
 			}
 		}
 	}
@@ -1261,6 +1287,32 @@ class SpeedyBBC
 						$pos++;
 
 						continue;
+					}
+					else
+					{
+						// We may need to close the tags preceding this one.
+						if($struct[$pos]->dependsOnParent())
+						{
+							do
+							{
+								$popped = array_pop($opened_tags);
+
+								if($popped !== null)
+								{
+									$opened_count--;
+
+									// Now close the tag.
+									$message .= $popped['replacements'] !== null ? str_ireplace(array_keys($popped['replacements']), array_values($popped['replacements']), $popped['match']->after()) : $popped['match']->after();
+								}
+							}
+							while($popped !== null && $popped['node']->dependsOnParent());
+
+							// We may have popped off one to many.
+							if($popped !== null && !$popped->['node']->dependsOnParent())
+							{
+								$opened_tags[$opened_count++] = $popped;
+							}
+						}
 					}
 
 					// If we got to this point, this means that the tag has no
